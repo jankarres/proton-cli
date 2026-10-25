@@ -587,3 +587,19 @@ B3IAALwCAP44Jm/M79n2m7svoV9utRucsvD6pAXhrn9Z4vGWGaCZ2gD7B1ZJ/xyC
 RNaFQnmm/GZKYXJ2+371ALYPsqZCwuDS0Q0=
 =rm4w
 -----END PGP PUBLIC KEY BLOCK-----`
+
+func TestImportDropsAConference(t *testing.T) {
+	got := importable(ical.VEvent{
+		UID:                "u",
+		ConferenceID:       "6MCF0BSHBR",
+		ConferenceURL:      "https://meet.proton.me/join/id-6MCF0BSHBR#pwd-abc",
+		ConferenceHost:     "jane@example.com",
+		ConferenceProvider: ical.ConferenceProviderMeet,
+	})
+	if got.ConferenceID != "" || got.ConferenceURL != "" || got.ConferenceHost != "" || got.ConferenceProvider != "" {
+		t.Errorf("an imported event kept a conference: %+v", got)
+	}
+	if card := got.SharedSigned() + got.SharedEncrypted(); strings.Contains(card, "X-PM-CONFERENCE") {
+		t.Errorf("an imported event writes a conference: %q", card)
+	}
+}

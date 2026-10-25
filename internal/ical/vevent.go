@@ -22,6 +22,10 @@ import (
 
 const prodID = "-//proton-cli//EN"
 
+// ConferenceProviderMeet is the X-PM-PROVIDER value that marks a conference as
+// Proton Meet, WebClients' VIDEO_CONFERENCE_PROVIDER.PROTON_MEET.
+const ConferenceProviderMeet = "2"
+
 // Attendee is one participant. Token is the deterministic Proton attendee token
 // (hex SHA-1 of UID + canonical email) that addresses the participant in the
 // encrypted attendees card.
@@ -78,6 +82,21 @@ type VEvent struct {
 	// as the reminders: Proton keeps it beside the cards, and a file is where it
 	// has to be written down for another client to see it.
 	Color string
+
+	// ConferenceID, ConferenceURL, ConferenceHost and ConferenceProvider are the
+	// video conference an event carries: WebClients' X-PM-CONFERENCE-ID (with its
+	// X-PM-PROVIDER parameter) in the signed card, and X-PM-CONFERENCE-URL (with
+	// X-PM-HOST) in the encrypted one.
+	//
+	// They are modelled, rather than left to pass through as unknown lines,
+	// because Proton ties a Meet meeting to the event that names it. An edit that
+	// rewrites the cards without them makes the server delete the meeting, and the
+	// join link left in the description then leads nowhere. The URL carries the
+	// meeting's password in its fragment, so it never reaches a listing or a log.
+	ConferenceID       string
+	ConferenceURL      string
+	ConferenceHost     string
+	ConferenceProvider string
 }
 
 // Alarm is a reminder, as iCalendar writes one.
@@ -233,6 +252,12 @@ func (v *VEvent) set(l contentline.Line) error {
 		v.Status = strings.ToUpper(l.Value)
 	case "COLOR":
 		v.Color = strings.TrimSpace(l.Value)
+	case "X-PM-CONFERENCE-ID":
+		v.ConferenceID = strings.TrimSpace(l.Value)
+		v.ConferenceProvider = l.Params.Get("X-PM-PROVIDER")
+	case "X-PM-CONFERENCE-URL":
+		v.ConferenceURL = strings.TrimSpace(l.Value)
+		v.ConferenceHost = l.Params.Get("X-PM-HOST")
 	}
 	return nil
 }
@@ -292,7 +317,37 @@ func (v VEvent) SharedSigned() string {
 		})
 	}
 	lines = append(lines, contentline.Line{Name: "SEQUENCE", Value: strconv.Itoa(v.Sequence)})
+	// SHARED_SIGNED_FIELDS ends with the conference ID. Dropping it here is what
+	// makes Proton delete the meeting behind it.
+	if line, ok := v.conferenceIDLine(); ok {
+		lines = append(lines, line)
+	}
 	return component(lines)
+}
+
+// conferenceIDLine is X-PM-CONFERENCE-ID, which names the meeting.
+func (v VEvent) conferenceIDLine() (contentline.Line, bool) {
+	if v.ConferenceID == "" {
+		return contentline.Line{}, false
+	}
+	line := contentline.Line{Name: "X-PM-CONFERENCE-ID", Value: v.ConferenceID}
+	if v.ConferenceProvider != "" {
+		line.Params = contentline.Params{{Name: "X-PM-PROVIDER", Value: v.ConferenceProvider}}
+	}
+	return line, true
+}
+
+// conferenceURLLine is X-PM-CONFERENCE-URL, the join link. X-PM-HOST names who
+// called the meeting and is written only when it is known.
+func (v VEvent) conferenceURLLine() (contentline.Line, bool) {
+	if v.ConferenceURL == "" {
+		return contentline.Line{}, false
+	}
+	line := contentline.Line{Name: "X-PM-CONFERENCE-URL", Value: v.ConferenceURL}
+	if v.ConferenceHost != "" {
+		line.Params = contentline.Params{{Name: "X-PM-HOST", Value: v.ConferenceHost}}
+	}
+	return line, true
 }
 
 // SharedEncrypted renders the card Proton encrypts to the calendar key and
@@ -311,6 +366,11 @@ func (v VEvent) SharedEncrypted() string {
 	}
 	if v.Status != "" {
 		lines = append(lines, contentline.Line{Name: "STATUS", Value: v.Status})
+	}
+	// SHARED_ENCRYPTED_FIELDS ends with the join link, and an edit that leaves it
+	// out is read by Proton as the conference having been removed.
+	if line, ok := v.conferenceURLLine(); ok {
+		lines = append(lines, line)
 	}
 	return component(lines)
 }

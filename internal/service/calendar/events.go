@@ -1237,9 +1237,12 @@ func (s *Service) EventsImport(ctx context.Context, calendarID string, events []
 }
 
 // importable strips what an imported event must not carry: the participants and
-// the organiser, since this account did not call the meeting, and a stamp, since
-// the event is being written now.
+// the organiser, since this account did not call the meeting, a stamp, since
+// the event is being written now, and any video conference: the meeting belongs
+// to whoever made it, and an event here that named it would be a second owner of
+// a meeting this account cannot manage.
 func importable(v ical.VEvent) ical.VEvent {
+	v.ConferenceID, v.ConferenceURL, v.ConferenceHost, v.ConferenceProvider = "", "", "", ""
 	v.Attendees = nil
 	v.Organizer = ""
 	v.Alarms = nil

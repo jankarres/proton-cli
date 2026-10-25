@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/roman-16/proton-cli/internal/contentline"
 )
 
 // A stored event arrives as several cards; the model is their union.
@@ -457,4 +459,95 @@ func TestParseCalendarIgnoresPropertiesItDoesNotKnow(t *testing.T) {
 	if len(events) != 1 || events[0].Summary != "Kept" {
 		t.Errorf("an unknown property lost the event: %v", events)
 	}
+}
+
+const (
+	conferenceSigned = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n" +
+		"UID:uid-meet\r\n" +
+		"DTSTAMP:20260101T000000Z\r\n" +
+		"DTSTART:20261027T100000Z\r\n" +
+		"DTEND:20261027T103000Z\r\n" +
+		"SEQUENCE:0\r\n" +
+		"X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:6MCF0BSHBR\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR\r\n"
+	conferenceEncrypted = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n" +
+		"UID:uid-meet\r\n" +
+		"DTSTAMP:20260101T000000Z\r\n" +
+		"SUMMARY:CLI Meet Test\r\n" +
+		"X-PM-CONFERENCE-URL;X-PM-HOST=jane@example.com:https://meet.proton.me/join/id-6MCF0BSHBR#pwd-abc\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR"
+)
+
+func TestConferencePropertiesSurviveARoundTrip(t *testing.T) {
+	v, err := Parse(conferenceSigned + conferenceEncrypted)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if v.ConferenceID != "6MCF0BSHBR" || v.ConferenceProvider != ConferenceProviderMeet ||
+		v.ConferenceURL != "https://meet.proton.me/join/id-6MCF0BSHBR#pwd-abc" ||
+		v.ConferenceHost != "jane@example.com" {
+		t.Fatalf("conference fields = %q %q %q %q", v.ConferenceID, v.ConferenceProvider, v.ConferenceURL, v.ConferenceHost)
+	}
+
+	signed := unfoldLines(v.SharedSigned())
+	if got := signed[len(signed)-3]; got != "X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:6MCF0BSHBR" {
+		t.Errorf("signed card line = %q, want the ID line last in %q", got, signed)
+	}
+	if !strings.Contains(v.SharedSigned(), "X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:6MCF0BSHBR") {
+		t.Errorf("signed card lost the conference ID: %q", v.SharedSigned())
+	}
+	enc := unfoldLines(v.SharedEncrypted())
+	want := "X-PM-CONFERENCE-URL;X-PM-HOST=jane@example.com:https://meet.proton.me/join/id-6MCF0BSHBR#pwd-abc"
+	if got := enc[len(enc)-3]; got != want {
+		t.Errorf("encrypted card line = %q, want %q", got, want)
+	}
+
+	// What was written reads back as the same conference.
+	back, err := Parse(v.SharedSigned() + v.SharedEncrypted())
+	if err != nil {
+		t.Fatalf("re-Parse: %v", err)
+	}
+	if back.ConferenceID != v.ConferenceID || back.ConferenceURL != v.ConferenceURL ||
+		back.ConferenceHost != v.ConferenceHost || back.ConferenceProvider != v.ConferenceProvider {
+		t.Errorf("round trip changed the conference: %+v", back)
+	}
+}
+
+func TestAConferenceWithoutAHostWritesNoHostParameter(t *testing.T) {
+	v := VEvent{UID: "u", ConferenceURL: "https://meet.proton.me/join/id-X#pwd-y"}
+	if got := v.SharedEncrypted(); !strings.Contains(got, "X-PM-CONFERENCE-URL:https://") || strings.Contains(got, "X-PM-HOST") {
+		t.Errorf("encrypted card = %q", got)
+	}
+}
+
+func TestAnEventWithoutAConferenceWritesNone(t *testing.T) {
+	v, err := Parse(storedCards)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for name, card := range map[string]string{"signed": v.SharedSigned(), "encrypted": v.SharedEncrypted()} {
+		if strings.Contains(card, "X-PM-CONFERENCE") {
+			t.Errorf("%s card carries a conference: %q", name, card)
+		}
+	}
+}
+
+func TestDocumentCarriesTheConference(t *testing.T) {
+	v, err := Parse(conferenceSigned + conferenceEncrypted)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	doc := v.Document("REQUEST")
+	for _, line := range []string{
+		"X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:6MCF0BSHBR",
+		"X-PM-CONFERENCE-URL;X-PM-HOST=jane@example.com:https://meet.proton.me/join/id-6MCF0BSHBR#pwd-abc",
+	} {
+		if !strings.Contains(strings.Join(unfoldLines(doc), "\n"), line) {
+			t.Errorf("REQUEST document lacks %q in %q", line, doc)
+		}
+	}
+}
+
+func unfoldLines(s string) []string {
+	return contentline.Unfold(s)
 }

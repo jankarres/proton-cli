@@ -97,6 +97,15 @@ func (v VEvent) component() []contentline.Line {
 		lines = append(lines, contentline.Line{Name: "COLOR", Value: v.Color})
 	}
 	lines = append(lines, contentline.Line{Name: "SEQUENCE", Value: strconv.Itoa(v.Sequence)})
+	// Both conference lines go out with the invitation, as WebClients'
+	// mailIntegration/invite.ts does, so the recipient's client shows the join
+	// button.
+	if line, ok := v.conferenceIDLine(); ok {
+		lines = append(lines, line)
+	}
+	if line, ok := v.conferenceURLLine(); ok {
+		lines = append(lines, line)
+	}
 	for _, a := range v.Alarms {
 		lines = append(lines, a.lines()...)
 	}
