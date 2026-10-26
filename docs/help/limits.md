@@ -22,8 +22,6 @@ A refusal that comes from Proton rather than from proton-cli belongs to [Trouble
 
 **Deleting an event leaves its Proton Meet meeting in place.** Run `proton calendar events update REF --no-meet` first to delete the meeting with the link.
 
-**Proton limits how many meetings an account can make in a while.** When it answers "You have recently created too many meetings", wait before trying `--meet` again.
-
 **A time on somebody else's booking page is booked in a browser.** Open the link they sent you. Your own booking pages are made and changed with `proton calendar booking-pages`.
 
 **A regular expression rule on a login's URL is set in a Pass app.** `proton pass items get` shows one, and `--url` takes every other rule ([Pass](../pass/README.md#choose-where-a-login-fills-in)).
@@ -32,9 +30,11 @@ A refusal that comes from Proton rather than from proton-cli belongs to [Trouble
 
 ## Out of scope
 
-proton-cli mirrors the Proton web clients for Mail, Drive, Calendar, Pass and Contacts.
+proton-cli mirrors the Proton web clients for Mail, Drive, Calendar, Pass, Contacts and Meet.
 
-Other Proton products are not covered: VPN, Wallet, Docs, Lumo and Authenticator. Of Meet, only the link on a calendar event is covered ([Calendar](../calendar/README.md#add-a-video-call-to-an-event)). Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool).
+Of Meet, meetings and rooms are covered, your personal room included ([Meet](../meet/README.md)). What happens inside a running call is not: the participants, locking the meeting, the waiting room, recordings and captions. Open the meeting's link for those.
+
+Other Proton products are not covered: VPN, Wallet, Docs, Lumo and Authenticator. Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool).
 
 Endpoints that exist in the API but have no equivalent action in a web client are also out of scope.
 

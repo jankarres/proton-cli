@@ -25,7 +25,7 @@ proton asks in two cases: before it removes something it cannot put back, and be
 
 | | You named it | A filter found it |
 | --- | --- | --- |
-| `delete` · `empty` · `leave` · `uninstall` | asks | asks |
+| `delete` · `empty` · `leave` · `uninstall` · `rotate` | asks | asks |
 | `trash` | acts | asks |
 | everything else | acts | acts |
 
@@ -110,7 +110,7 @@ Try:   mail
 | --- | --- |
 | `reads` | Anything that does not change state |
 | `mutations` | Anything that does |
-| `deletions` | `delete`, `empty`, `uninstall`, `api` |
+| `deletions` | `delete`, `empty`, `uninstall`, `rotate`, `api` |
 | `all` | Every command |
 | `default` | Nothing beyond the table above, so a narrower scope can opt out of a broader directive |
 

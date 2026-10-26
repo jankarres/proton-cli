@@ -64,7 +64,7 @@ export default defineConfig({
         { attrs: { content: "630", property: "og:image:height" }, tag: "meta" },
         {
           attrs: {
-            content: "proton-cli, your CLI for Proton Mail, Drive, Calendar, Pass and Contacts",
+            content: "proton-cli, your CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet",
             property: "og:image:alt",
           },
           tag: "meta",

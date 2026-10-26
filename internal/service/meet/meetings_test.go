@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	pgphelper "github.com/roman-16/proton-cli/internal/crypto/pgp"
 	"github.com/roman-16/proton-cli/internal/errs"
 	"github.com/roman-16/proton-cli/internal/proton"
+	"github.com/roman-16/proton-cli/internal/skip"
 )
 
 // meetDoer stands in for Proton: it answers the SRP modulus and the Meet routes
@@ -313,7 +315,7 @@ func TestDeleteAndRenameGoThroughTheMeetDoor(t *testing.T) {
 	if err := s.Rename(context.Background(), m, "New title"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
-	if err := s.Delete(context.Background(), "meeting-id"); err != nil {
+	if err := s.Delete(context.Background(), m); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if len(d.sent) != 2 {
@@ -381,4 +383,333 @@ func wire(t *testing.T, body any) map[string]any {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// stored is a meeting as Proton keeps it for the test account: sealed under a
+// fresh secret, with the host copy of its password sealed to the primary key.
+// It returns the meeting and the link it opens to.
+func stored(t *testing.T, u *keys.Unlocked, id, name, title string, typ MeetingType) (map[string]any, string) {
+	t.Helper()
+	secret, err := newSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, err := sealPassword(u.UserKR, secret.Password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := secret.lockedSessionKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := sealTitle(secret.SessionKey, title)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]any{
+		"ID": id, "MeetingLinkName": name, "MeetingName": sealed, "Password": copied,
+		"Salt": base64.StdEncoding.EncodeToString(secret.Salt), "SessionKey": base64.StdEncoding.EncodeToString(locked),
+		"AddressID": "addr-main", "Type": int(typ), "StartTime": nil, "EndTime": nil, "RRule": nil, "Timezone": nil,
+	}, Link(name, secret.Password)
+}
+
+func TestUpcomingOpensEveryTitle(t *testing.T) {
+	u := testAccount(t)
+	review, reviewLink := stored(t, u, "meeting-1", "6MCF0BSHBR", "Design review", Scheduled)
+	review["StartTime"], review["EndTime"], review["Timezone"] = 1793091600, 1793093400, "Europe/Berlin"
+	room, roomLink := stored(t, u, "meeting-2", "PERSONAL01", "My room", Personal)
+	d := &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/upcoming": map[string]any{"Meetings": []any{review, room}},
+	}}
+
+	got, err := testService(d, u).Upcoming(context.Background())
+	if err != nil {
+		t.Fatalf("Upcoming: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d meetings, want 2", len(got))
+	}
+	if got[0].Title != "Design review" || got[0].URL != reviewLink || got[0].Type != Scheduled || got[0].Host != "me@proton.me" {
+		t.Errorf("first meeting %+v", got[0])
+	}
+	if got[0].Start == nil || got[0].Start.Unix() != 1793091600 || got[0].Timezone != "Europe/Berlin" {
+		t.Errorf("first meeting starts %v in %q", got[0].Start, got[0].Timezone)
+	}
+	if got[1].Title != "My room" || got[1].URL != roomLink || got[1].Type != Personal || got[1].Start != nil {
+		t.Errorf("second meeting %+v", got[1])
+	}
+	if r := d.sent[0]; !r.MeetHost {
+		t.Error("the listing did not go through the Meet door")
+	}
+}
+
+func TestAMeetingThatWillNotOpenIsRecorded(t *testing.T) {
+	u := testAccount(t)
+	good, _ := stored(t, u, "meeting-1", "6MCF0BSHBR", "Design review", Scheduled)
+	garbled, _ := stored(t, u, "meeting-2", "GARBLED001", "Garbled", Scheduled)
+	garbled["Password"] = "not a PGP message"
+	uncopied, _ := stored(t, u, "meeting-3", "NOCOPY0001", "No copy", Scheduled)
+	uncopied["Password"] = ""
+	d := &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/upcoming": map[string]any{"Meetings": []any{garbled, good, uncopied}},
+	}}
+	ctx, tally := skip.With(context.Background())
+
+	got, err := testService(d, u).Upcoming(ctx)
+	if err != nil {
+		t.Fatalf("Upcoming: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "meeting-1" {
+		t.Fatalf("got %+v, want only the meeting that opens", got)
+	}
+	if tally.Count() != 2 || tally.Kind() != skip.KindMeeting {
+		t.Errorf("tally counts %d of kind %q, want 2 meetings", tally.Count(), tally.Kind())
+	}
+}
+
+func TestUpcomingPassesOnAFailedListing(t *testing.T) {
+	refused := &proton.APIError{HTTPStatus: 500, Code: 2000}
+	d := &meetDoer{t: t, answers: map[string]any{"GET /meet/v1/meetings/upcoming": refused}}
+	if _, err := testService(d, testAccount(t)).Upcoming(context.Background()); !errors.Is(err, refused) {
+		t.Errorf("got %v, want the API's refusal", err)
+	}
+}
+
+func TestResolvePersonal(t *testing.T) {
+	u := testAccount(t)
+	review, _ := stored(t, u, "meeting-1", "6MCF0BSHBR", "Design review", Scheduled)
+	room, roomLink := stored(t, u, "meeting-2", "PERSONAL01", "My room", Personal)
+
+	d := &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/upcoming": map[string]any{"Meetings": []any{review, room}},
+	}}
+	m, err := testService(d, u).Resolve(context.Background(), "personal")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if m.ID != "meeting-2" || m.URL != roomLink {
+		t.Errorf("resolved %q to %q, want the personal room", m.ID, m.URL)
+	}
+
+	d = &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/upcoming": map[string]any{"Meetings": []any{review}},
+	}}
+	_, err = testService(d, u).Resolve(context.Background(), "personal")
+	var nf *errs.NotFound
+	if !errors.As(err, &nf) || nf.ExitCode() != 3 {
+		t.Fatalf("without a personal room got %v, want a not-found", err)
+	}
+	if nf.Error() != "No personal room found." {
+		t.Errorf("message %q", nf.Error())
+	}
+	if !slices.Contains(nf.Hints(), "proton meet rooms create --personal") {
+		t.Errorf("hints %v, want the command that makes one", nf.Hints())
+	}
+}
+
+func TestResolveALinkOrItsName(t *testing.T) {
+	u := testAccount(t)
+	review, link := stored(t, u, "meeting-1", "6MCF0BSHBR", "Design review", Scheduled)
+	d := &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/by-link/6MCF0BSHBR": map[string]any{"Meeting": review},
+		"GET /meet/v1/meetings/upcoming":           map[string]any{"Meetings": []any{}},
+	}}
+	s := testService(d, u)
+	for _, ref := range []string{"6MCF0BSHBR", link} {
+		m, err := s.Resolve(context.Background(), ref)
+		if err != nil || m.Title != "Design review" || m.URL != link {
+			t.Errorf("Resolve(%q) = %+v, %v", ref, m, err)
+		}
+	}
+	if _, err := s.Resolve(context.Background(), "https://example.com/join"); err == nil {
+		t.Error("a link that is not Meet's resolved")
+	}
+	if len(d.sent) != 4 {
+		t.Errorf("sent %d requests, want a lookup and a listing per good reference", len(d.sent))
+	}
+}
+
+// The lookup by link never says which calendar event a meeting belongs to, and
+// the listing does, so a resolved meeting carries what the listing says.
+func TestResolveReadsTheCalendarEventFromTheListing(t *testing.T) {
+	u := testAccount(t)
+	review, _ := stored(t, u, "meeting-1", "6MCF0BSHBR", "Design review", Scheduled)
+	listed := map[string]any{}
+	for k, v := range review {
+		listed[k] = v
+	}
+	listed["CalendarID"], listed["CalendarEventID"] = "calendar-1", "event-1"
+	other, _ := stored(t, u, "meeting-2", "865JZ8JMHG", "Other", Scheduled)
+	other["CalendarID"], other["CalendarEventID"] = "calendar-1", "event-2"
+	d := &meetDoer{t: t, answers: map[string]any{
+		"GET /meet/v1/meetings/by-link/6MCF0BSHBR": map[string]any{"Meeting": review},
+		"GET /meet/v1/meetings/upcoming":           map[string]any{"Meetings": []any{other, listed}},
+	}}
+	m, err := testService(d, u).Resolve(context.Background(), "6MCF0BSHBR")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if m.CalendarID != "calendar-1" || m.CalendarEventID != "event-1" {
+		t.Errorf("resolved meeting belongs to %q/%q, want calendar-1/event-1", m.CalendarID, m.CalendarEventID)
+	}
+
+	// A meeting the listing does not hold, one already past, keeps what the
+	// lookup said, which is no event.
+	d.answers["GET /meet/v1/meetings/upcoming"] = map[string]any{"Meetings": []any{other}}
+	m, err = testService(d, u).Resolve(context.Background(), "6MCF0BSHBR")
+	if err != nil || m.CalendarEventID != "" {
+		t.Errorf("a meeting not listed resolved to event %q, %v", m.CalendarEventID, err)
+	}
+}
+
+func TestRescheduleSendsTheWebShape(t *testing.T) {
+	start := time.Date(2026, 11, 2, 10, 0, 0, 0, time.FixedZone("CET", 3600))
+	end := start.Add(time.Hour)
+	moved := map[string]any{"Meeting": map[string]any{
+		"ID": "meeting-id", "MeetingLinkName": "6MCF0BSHBR", "Type": 3,
+		"StartTime": start.Unix(), "EndTime": end.Unix(), "Timezone": "Europe/Vienna", "RRule": "FREQ=WEEKLY",
+	}}
+
+	cases := []struct {
+		name  string
+		rrule string
+		want  map[string]any
+	}{
+		{"once", "", map[string]any{
+			"StartTime": "2026-11-02T09:00:00.000Z", "EndTime": "2026-11-02T10:00:00.000Z",
+			"Timezone": "Europe/Vienna", "RRule": nil,
+		}},
+		{"weekly", "FREQ=WEEKLY", map[string]any{
+			"StartTime": "2026-11-02T09:00:00.000Z", "EndTime": "2026-11-02T10:00:00.000Z",
+			"Timezone": "Europe/Vienna", "RRule": "FREQ=WEEKLY",
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := &meetDoer{t: t, answers: map[string]any{"PUT /meet/v1/meetings/meeting-id/schedule": moved}}
+			m := &Meeting{ID: "meeting-id", Name: "6MCF0BSHBR", Title: "Stand-up", Type: Scheduled}
+			if err := testService(d, testAccount(t)).Reschedule(context.Background(), m, start, end, c.rrule, "Europe/Vienna"); err != nil {
+				t.Fatalf("Reschedule: %v", err)
+			}
+			if len(d.sent) != 1 || !d.sent[0].MeetHost {
+				t.Fatalf("sent %+v, want one request through the Meet door", d.sent)
+			}
+			if body := wire(t, d.sent[0].Body); !reflect.DeepEqual(body, c.want) {
+				t.Errorf("sent %v\nwant %v", body, c.want)
+			}
+			// What Proton answers is what the meeting now is.
+			if m.Start == nil || !m.Start.Equal(start) || m.End == nil || !m.End.Equal(end) ||
+				m.RRule != "FREQ=WEEKLY" || m.Timezone != "Europe/Vienna" || m.Type != Recurring || m.Title != "Stand-up" {
+				t.Errorf("meeting after the move %+v", m)
+			}
+		})
+	}
+
+	d := &meetDoer{t: t, answers: map[string]any{
+		"PUT /meet/v1/meetings/meeting-id/schedule": &proton.APIError{HTTPStatus: 422, Code: 2501},
+	}}
+	m := &Meeting{ID: "meeting-id", Name: "6MCF0BSHBR"}
+	err := testService(d, testAccount(t)).Reschedule(context.Background(), m, start, end, "", "Europe/Vienna")
+	var nf *errs.NotFound
+	if !errors.As(err, &nf) || nf.Ref != "6MCF0BSHBR" {
+		t.Errorf("a meeting that is gone gave %v, want a not-found by its link name", err)
+	}
+}
+
+// An answer that carries no meeting says nothing about where the meeting now
+// is, so it is an error rather than a meeting quietly emptied of its times.
+func TestARescheduleAnsweredWithoutAMeetingIsAnError(t *testing.T) {
+	start := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	was := start.Add(-time.Hour)
+	d := &meetDoer{t: t, answers: map[string]any{"PUT /meet/v1/meetings/meeting-id/schedule": map[string]any{}}}
+	m := &Meeting{ID: "meeting-id", Name: "6MCF0BSHBR", Type: Scheduled, Start: &was}
+	err := testService(d, testAccount(t)).Reschedule(context.Background(), m, start, start.Add(time.Hour), "", "UTC")
+	if err == nil {
+		t.Fatal("an answer with no meeting was taken")
+	}
+	if m.Start != &was || m.Type != Scheduled {
+		t.Errorf("the meeting changed on an empty answer: %+v", m)
+	}
+}
+
+// Proton keeps the zone a meeting was chosen in, and one sent without it would
+// be a meeting with no zone, so none is refused before anything is sent.
+func TestARescheduleNeedsAZone(t *testing.T) {
+	d := &meetDoer{t: t}
+	start := time.Now()
+	m := &Meeting{ID: "meeting-id", Name: "6MCF0BSHBR", Type: Scheduled}
+	if err := testService(d, testAccount(t)).Reschedule(context.Background(), m, start, start, "", ""); err == nil {
+		t.Error("a reschedule with no zone was sent")
+	}
+	if len(d.sent) != 0 {
+		t.Errorf("sent %d requests", len(d.sent))
+	}
+}
+
+// A meeting is known by its link name, which is what the link shows and what
+// every command takes, and Proton's own ID is something no command takes.
+func TestAMeetingIsWrittenByItsLinkName(t *testing.T) {
+	raw, err := json.Marshal(Meeting{ID: "proton-id", Name: "6MCF0BSHBR"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["id"] != "6MCF0BSHBR" {
+		t.Errorf("JSON id %v, want the link name", out["id"])
+	}
+	if _, ok := out["name"]; ok {
+		t.Error("JSON carries the link name twice")
+	}
+	if containsValue(out, "proton-id") {
+		t.Error("Proton's own ID reaches JSON")
+	}
+}
+
+func containsValue(m map[string]any, want string) bool {
+	for _, v := range m {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDeleteNamesTheMeetingByItsLink(t *testing.T) {
+	d := &meetDoer{t: t, answers: map[string]any{
+		"DELETE /meet/v1/meetings/meeting-id": &proton.APIError{HTTPStatus: 422, Code: 2501},
+	}}
+	s := testService(d, testAccount(t))
+	err := s.Delete(context.Background(), &Meeting{ID: "meeting-id", Name: "6MCF0BSHBR"})
+	var nf *errs.NotFound
+	if !errors.As(err, &nf) || nf.Ref != "6MCF0BSHBR" {
+		t.Errorf("got %v, want a not-found by the link name", err)
+	}
+	// A meeting known only by Proton's ID is named by that.
+	err = s.Delete(context.Background(), &Meeting{ID: "meeting-id"})
+	if !errors.As(err, &nf) || nf.Ref != "meeting-id" {
+		t.Errorf("got %v, want a not-found by the ID", err)
+	}
+}
+
+// Proton's ID goes into the path as it is, so one that would change the route
+// is refused before anything is sent.
+func TestAnIDThatWouldChangeTheRouteIsRefused(t *testing.T) {
+	d := &meetDoer{t: t}
+	s := testService(d, testAccount(t))
+	start := time.Now()
+	for _, id := range []string{"", "a/b", "../meeting-id", ".", ".."} {
+		m := &Meeting{ID: id, Name: "6MCF0BSHBR", SessionKey: nil}
+		if err := s.Delete(context.Background(), m); err == nil {
+			t.Errorf("Delete accepted ID %q", id)
+		}
+		if err := s.Reschedule(context.Background(), m, start, start, "", "UTC"); err == nil {
+			t.Errorf("Reschedule accepted ID %q", id)
+		}
+	}
+	if len(d.sent) != 0 {
+		t.Errorf("sent %d requests for IDs that were refused", len(d.sent))
+	}
 }

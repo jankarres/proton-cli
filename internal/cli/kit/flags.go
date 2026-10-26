@@ -211,7 +211,7 @@ var Flags = map[string]Flag{
 	"summary":                {Means: "one line per item instead of the whole thing"},
 	"tag":                    {Means: "the photo tag to select"},
 	"timezone":               {Means: "an IANA time zone"},
-	"title":                  {Means: "a title: an event's or a booking page's, or a person's job title"},
+	"title":                  {Means: "a title: an event's, a booking page's, a meeting's or a room's, or a person's job title"},
 	"to":                     {Means: "an address mail goes to: compose sets one, a filter matches one, an import lands on one"},
 	"totp":                   {Means: "a two-factor code"},
 	"type":                   {Means: "the kind of thing to create or select"},

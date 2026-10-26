@@ -35,8 +35,8 @@ func (f *fakeMeetings) Create(_ context.Context, nm meet.NewMeeting) (*meet.Meet
 	return &meet.Meeting{ID: "meeting1", Name: "abcdefghij", Title: nm.Title, URL: fakeMeetURL}, nil
 }
 
-func (f *fakeMeetings) Delete(_ context.Context, id string) error {
-	f.deleted = append(f.deleted, id)
+func (f *fakeMeetings) Delete(_ context.Context, m *meet.Meeting) error {
+	f.deleted = append(f.deleted, m.ID)
 	return f.refuse
 }
 
@@ -167,7 +167,7 @@ func TestAFailedEventWriteDeletesItsMeeting(t *testing.T) {
 // undeletable is a Meet service whose meetings cannot be deleted again.
 type undeletable struct{ fakeMeetings }
 
-func (undeletable) Delete(context.Context, string) error { return errors.New("meet is down") }
+func (undeletable) Delete(context.Context, *meet.Meeting) error { return errors.New("meet is down") }
 
 func TestAMeetingThatCannotBeDeletedIsNamed(t *testing.T) {
 	refused := errors.New("the calendar refused the event")

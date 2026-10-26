@@ -1093,6 +1093,54 @@ var examples = map[string][]string{
 	"proton mail settings imports undo":   {"proton mail settings imports undo jane@fastmail.com"},
 	"proton mail settings imports delete": {"proton mail settings imports delete jane@fastmail.com"},
 
+	// ── meet ──
+	"proton meet meetings create": {
+		"proton meet meetings create --title 'Team sync'",
+		"proton meet meetings create --title 'Team sync' --start 2026-11-02T10:00 --duration 1h",
+		"proton meet meetings create --title 'Team sync' --start 2026-11-02T10:00 --rrule 'FREQ=WEEKLY;BYDAY=MO'",
+	},
+	"proton meet meetings delete": {
+		"proton meet meetings delete 6MCF0BSHBR",
+		"proton meet meetings delete 6MCF0BSHBR --dry-run",
+	},
+	"proton meet meetings get": {
+		"proton meet meetings get 6MCF0BSHBR",
+		"proton meet meetings get 6MCF0BSHBR --output json",
+	},
+	"proton meet meetings list": {
+		"proton meet meetings list",
+		"proton meet meetings list --output json",
+	},
+	"proton meet meetings update": {
+		"proton meet meetings update 6MCF0BSHBR --title 'Design review'",
+		"proton meet meetings update 6MCF0BSHBR --start 2026-11-03T14:00",
+		"proton meet meetings update 6MCF0BSHBR --start 2026-11-03T14:00 --duration 45m --rrule ''",
+	},
+	"proton meet rooms create": {
+		"proton meet rooms create --title 'Team room'",
+		"proton meet rooms create --personal",
+	},
+	"proton meet rooms delete": {
+		"proton meet rooms delete E87W2DAJ60",
+		"proton meet rooms delete personal --dry-run",
+	},
+	"proton meet rooms get": {
+		"proton meet rooms get personal",
+		"proton meet rooms get E87W2DAJ60 --output json",
+	},
+	"proton meet rooms list": {
+		"proton meet rooms list",
+		"proton meet rooms list --output json",
+	},
+	"proton meet rooms rotate": {
+		"proton meet rooms rotate personal",
+		"proton meet rooms rotate personal --yes",
+	},
+	"proton meet rooms update": {
+		"proton meet rooms update E87W2DAJ60 --title 'Team room'",
+		"proton meet rooms update personal --title 'Office hours'",
+	},
+
 	// ── pass ──
 	"proton pass vaults share add": {
 		"proton pass vaults share add Work jane@proton.me",

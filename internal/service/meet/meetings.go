@@ -6,11 +6,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
+	pgp "github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/roman-16/proton-cli/internal/account/keys"
 	"github.com/roman-16/proton-cli/internal/errs"
 	"github.com/roman-16/proton-cli/internal/proton"
+	"github.com/roman-16/proton-cli/internal/skip"
 )
 
 // What a new meeting declares about itself, beside its type.
@@ -96,51 +99,78 @@ func (u *unixTime) UnmarshalJSON(b []byte) error {
 // user key, and an SRP verifier for the password so Proton can check a joiner
 // without ever holding it.
 func (s *Service) Create(ctx context.Context, nm NewMeeting) (*Meeting, error) {
+	return s.send(ctx, "/meet/v1/meetings", "create the meeting", nm)
+}
+
+// send seals nm under a fresh secret and posts it to path, which is the create
+// route or the personal room's rotate route: both take the whole of what makes a
+// meeting, and both answer with the meeting as Proton now keeps it.
+func (s *Service) send(ctx context.Context, path, doing string, nm NewMeeting) (*Meeting, error) {
 	u, err := s.keys(ctx)
 	if err != nil {
 		return nil, err
 	}
-	primary, err := u.PrimaryUserKey()
+	body, secret, err := s.sealed(ctx, u, nm)
 	if err != nil {
 		return nil, err
+	}
+	var r struct{ Meeting rawMeeting }
+	if err := s.C.Decode(ctx, proton.Request{
+		Method: "POST", Path: path, Body: body, MeetHost: true,
+	}, &r); err != nil {
+		return nil, fmt.Errorf("%s: %w", doing, err)
+	}
+	m := meeting(u, r.Meeting)
+	m.Title = nm.Title
+	m.URL = Link(r.Meeting.MeetingLinkName, secret.Password)
+	m.SessionKey = secret.SessionKey
+	return m, nil
+}
+
+// sealed is the payload that makes nm, as prepareMeetingCryptoData builds it,
+// and the secret it was sealed under.
+func (s *Service) sealed(ctx context.Context, u *keys.Unlocked, nm NewMeeting) (createBody, Secret, error) {
+	primary, err := u.PrimaryUserKey()
+	if err != nil {
+		return createBody{}, Secret{}, err
 	}
 	addressID := nm.AddressID
 	if addressID == "" {
 		if addressID, err = hostAddress(u); err != nil {
-			return nil, err
+			return createBody{}, Secret{}, err
 		}
 	}
 
 	secret, err := newSecret()
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 	locked, err := secret.lockedSessionKey()
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 	title, err := sealTitle(secret.SessionKey, nm.Title)
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 	copied, err := sealPassword(primary, secret.Password)
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 	modulus, err := proton.FetchModulus(ctx, s.C)
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 	verifier, err := modulus.Verifier([]byte(secret.Password))
 	if err != nil {
-		return nil, err
+		return createBody{}, Secret{}, err
 	}
 
 	calendar := notFromProtonCalendar
 	if nm.FromCalendar {
 		calendar = fromProtonCalendar
 	}
-	body := createBody{
+	return createBody{
 		Name:           title,
 		Password:       copied,
 		Salt:           base64.StdEncoding.EncodeToString(secret.Salt),
@@ -156,18 +186,7 @@ func (s *Service) Create(ctx context.Context, nm NewMeeting) (*Meeting, error) {
 		CustomPassword: noCustomPassword,
 		Type:           int(nm.Type),
 		ProtonCalendar: calendar,
-	}
-	var r struct{ Meeting rawMeeting }
-	if err := s.C.Decode(ctx, proton.Request{
-		Method: "POST", Path: "/meet/v1/meetings", Body: body, MeetHost: true,
-	}, &r); err != nil {
-		return nil, fmt.Errorf("create the meeting: %w", err)
-	}
-	m := meeting(u, r.Meeting)
-	m.Title = nm.Title
-	m.URL = Link(r.Meeting.MeetingLinkName, secret.Password)
-	m.SessionKey = secret.SessionKey
-	return m, nil
+	}, secret, nil
 }
 
 // ByLink looks a meeting up by its link name and opens it. A password from a
@@ -239,14 +258,16 @@ func open(u *keys.Unlocked, raw rawMeeting, password string) (*Meeting, error) {
 	return m, nil
 }
 
-// Delete deletes a meeting by Proton's ID of it. Its link stops working for
-// everyone it was sent to.
-func (s *Service) Delete(ctx context.Context, id string) error {
+// Delete deletes a meeting. Its link stops working for everyone it was sent to.
+func (s *Service) Delete(ctx context.Context, m *Meeting) error {
+	if err := checkID(m.ID); err != nil {
+		return err
+	}
 	err := s.C.Decode(ctx, proton.Request{
-		Method: "DELETE", Path: "/meet/v1/meetings/" + id, MeetHost: true,
+		Method: "DELETE", Path: "/meet/v1/meetings/" + m.ID, MeetHost: true,
 	}, nil)
 	if proton.DoesNotExist(err) {
-		return &errs.NotFound{Kind: "meeting", Ref: id}
+		return gone(m)
 	}
 	return err
 }
@@ -255,6 +276,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // updateMeetingNameCall sends it, and records the title on m once Proton has
 // taken it.
 func (s *Service) Rename(ctx context.Context, m *Meeting, title string) error {
+	if err := checkID(m.ID); err != nil {
+		return err
+	}
 	sealed, err := s.SealTitle(m, title)
 	if err != nil {
 		return err
@@ -264,13 +288,193 @@ func (s *Service) Rename(ctx context.Context, m *Meeting, title string) error {
 		Body: map[string]string{"Name": sealed}, MeetHost: true,
 	}, nil)
 	if proton.DoesNotExist(err) {
-		return &errs.NotFound{Kind: "meeting", Ref: m.Name}
+		return gone(m)
 	}
 	if err != nil {
 		return err
 	}
 	m.Title = title
 	return nil
+}
+
+// Upcoming is every meeting Proton lists as upcoming for the account, rooms
+// included, as getUpcomingMeetingsQuery fetches them for the dashboard, each
+// opened through the account's own copy of its password. A meeting that will
+// not open is left out and recorded, so the listing can say it is short.
+func (s *Service) Upcoming(ctx context.Context) ([]Meeting, error) {
+	var r struct{ Meetings []rawMeeting }
+	if err := s.C.Decode(ctx, proton.Request{
+		Method: "GET", Path: "/meet/v1/meetings/upcoming", MeetHost: true,
+	}, &r); err != nil {
+		return nil, err
+	}
+	u, err := s.keys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Meeting, 0, len(r.Meetings))
+	for _, raw := range r.Meetings {
+		m, err := open(u, raw, "")
+		if err != nil {
+			skip.Record(ctx, skip.KindMeeting, raw.ID, shut(u, raw), err)
+			continue
+		}
+		out = append(out, *m)
+	}
+	return out, nil
+}
+
+// personalRef is the reference that names the account's personal room, which
+// has a link like any other meeting but is the one a person thinks of by kind.
+const personalRef = "personal"
+
+// Resolve finds the meeting a reference names: the ten-character ID the link
+// shows, the whole link, or personal for the account's personal room.
+func (s *Service) Resolve(ctx context.Context, ref string) (*Meeting, error) {
+	if ref == personalRef {
+		return s.personal(ctx)
+	}
+	name, password, err := ParseLink(ref)
+	if err != nil {
+		return nil, err
+	}
+	m, err := s.ByLink(ctx, name, password)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.calendarEvent(ctx, m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// calendarEvent records which calendar event a meeting belongs to. The lookup
+// by link answers null for both IDs even for a meeting an event carries, and the
+// upcoming listing names them (both seen live on 2026-10-25), so the listing is
+// read for this one meeting without opening any of the others. A meeting the
+// listing does not hold, one already over, keeps what the lookup said.
+func (s *Service) calendarEvent(ctx context.Context, m *Meeting) error {
+	var r struct{ Meetings []rawMeeting }
+	if err := s.C.Decode(ctx, proton.Request{
+		Method: "GET", Path: "/meet/v1/meetings/upcoming", MeetHost: true,
+	}, &r); err != nil {
+		return err
+	}
+	for _, raw := range r.Meetings {
+		if raw.ID == m.ID {
+			m.CalendarID, m.CalendarEventID = raw.CalendarID, raw.CalendarEventID
+			break
+		}
+	}
+	return nil
+}
+
+// CheckRef refuses a reference no meeting could answer to, before anything is
+// sent: what Resolve takes is personal, a link, or the ten characters of one.
+func CheckRef(ref string) error {
+	if ref == personalRef {
+		return nil
+	}
+	_, _, err := ParseLink(ref)
+	return err
+}
+
+// personal is the account's personal room. Proton keeps one at most and lists
+// it among the upcoming meetings, which is where the dashboard finds it too.
+func (s *Service) personal(ctx context.Context) (*Meeting, error) {
+	all, err := s.Upcoming(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if all[i].Type == Personal {
+			return &all[i], nil
+		}
+	}
+	return nil, noPersonalRoom()
+}
+
+// scheduleBody is the payload of updateMeetingScheduleCall: the times as
+// Date.toISOString writes them, the zone they were chosen in, and the rule, null
+// for a meeting that happens once.
+type scheduleBody struct {
+	StartTime string
+	EndTime   string
+	Timezone  string
+	RRule     *string
+}
+
+// Reschedule moves a meeting to new times, and to a new rule or none, as
+// useUpdateMeetingSchedule does. What Proton answers is recorded on m, since the
+// server decides what the meeting is once moved.
+func (s *Service) Reschedule(ctx context.Context, m *Meeting, start, end time.Time, rrule, timezone string) error {
+	if err := checkID(m.ID); err != nil {
+		return err
+	}
+	// The zone is what the times were chosen in, and every caller has one, so a
+	// missing one is a fault and not the person's.
+	if timezone == "" {
+		return fmt.Errorf("reschedule meeting %s: no time zone to send", m.ID)
+	}
+	var r struct{ Meeting *rawMeeting }
+	err := s.C.Decode(ctx, proton.Request{
+		Method: "PUT", Path: "/meet/v1/meetings/" + m.ID + "/schedule",
+		Body: scheduleBody{
+			StartTime: start.UTC().Format(isoTime),
+			EndTime:   end.UTC().Format(isoTime),
+			Timezone:  timezone,
+			RRule:     orNull(rrule),
+		},
+		MeetHost: true,
+	}, &r)
+	if proton.DoesNotExist(err) {
+		return gone(m)
+	}
+	if err != nil {
+		return err
+	}
+	if r.Meeting == nil {
+		return fmt.Errorf("reschedule meeting %s: Proton's answer carries no meeting", m.ID)
+	}
+	m.Type = MeetingType(r.Meeting.Type)
+	m.Start, m.End = r.Meeting.StartTime.t, r.Meeting.EndTime.t
+	m.RRule, m.Timezone = r.Meeting.RRule, r.Meeting.Timezone
+	return nil
+}
+
+// checkID refuses a meeting ID that would change the route it is put into.
+// Proton's IDs are URL-safe base64 and never carry a slash, so one that does
+// came from somewhere it should not have. A lone dot or two would be read as a
+// step through the path by whatever cleans it up on the way.
+func checkID(id string) error {
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, "/?#") {
+		return fmt.Errorf("refuse meeting ID %q: not one Proton hands out", id)
+	}
+	return nil
+}
+
+// gone is the answer for a meeting Proton no longer has, named by the link name
+// the person knows it by, or by Proton's ID when that is all there is.
+func gone(m *Meeting) error {
+	ref := m.Name
+	if ref == "" {
+		ref = m.ID
+	}
+	return &errs.NotFound{Kind: "meeting", Ref: ref}
+}
+
+// shut names why a listed meeting would not open, for the tally: no copy of its
+// password for this account, a copy that is not a PGP message, or one sealed to
+// a key that would not open it.
+func shut(u *keys.Unlocked, raw rawMeeting) skip.Reason {
+	if raw.Password == "" {
+		return skip.NoKey
+	}
+	msg, err := pgp.NewPGPMessageFromArmored(raw.Password)
+	if err != nil {
+		return skip.Malformed
+	}
+	return u.Shut(msg)
 }
 
 // SealTitle is a title sealed under the meeting's session key, which is what a

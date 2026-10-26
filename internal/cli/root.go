@@ -24,6 +24,7 @@ import (
 	indexcmd "github.com/roman-16/proton-cli/internal/cli/index"
 	"github.com/roman-16/proton-cli/internal/cli/kit"
 	mailcmd "github.com/roman-16/proton-cli/internal/cli/mail"
+	meetcmd "github.com/roman-16/proton-cli/internal/cli/meet"
 	passcmd "github.com/roman-16/proton-cli/internal/cli/pass"
 	selfcmd "github.com/roman-16/proton-cli/internal/cli/self"
 	"github.com/roman-16/proton-cli/internal/config"
@@ -96,9 +97,9 @@ func newRoot() *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   kit.Program,
-		Short: "Unofficial CLI for Proton Mail, Drive, Calendar, Pass and Contacts",
+		Short: "Unofficial CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet",
 		Long: "Proton, in your terminal.\n\n" +
-			"Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts.",
+			"Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -219,7 +220,7 @@ func newRoot() *cobra.Command {
 			root.AddCommand(c)
 		}
 	}
-	add(kit.GroupApps, mailcmd.New(), drivecmd.New(), calendarcmd.New(), contactscmd.New(), passcmd.New())
+	add(kit.GroupApps, mailcmd.New(), drivecmd.New(), calendarcmd.New(), contactscmd.New(), passcmd.New(), meetcmd.New())
 	add(kit.GroupAccount, accountcmd.New(), apicmd.New(), indexcmd.New())
 	add(kit.GroupSelf, selfcmd.ChangelogCmd(), selfcmd.ReportCmd(version), selfcmd.UpdateCmd(version),
 		selfcmd.UninstallCmd(), selfcmd.VersionCmd(version), completionCmd(root), skillCmd(root, version))

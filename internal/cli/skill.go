@@ -49,10 +49,10 @@ var contract = template.Must(template.New("skill").Parse(contractSource))
 // question about Proton VPN is worse than one that never triggers.
 const skillDescription = "Work with a Proton account through the " + kit.Program +
 	" command-line tool - read, search, send and organize Proton Mail; upload, download and share Drive files; " +
-	"read and create Calendar events; read Pass logins, TOTP codes and aliases; look up Contacts. " +
-	"Use when the user asks about their Proton mail, files, calendar, passwords or contacts, or mentions " +
+	"read and create Calendar events; read Pass logins, TOTP codes and aliases; look up Contacts; create Meet meetings and rooms. " +
+	"Use when the user asks about their Proton mail, files, calendar, passwords, contacts or video meetings, or mentions " +
 	kit.Alias + " or the " + kit.Program + " command. " +
-	"Not for Proton VPN, Wallet, Docs, Meet or Lumo, which it does not cover."
+	"Not for Proton VPN, Wallet, Docs or Lumo, which it does not cover."
 
 const skillCompatibility = "Requires the " + kit.Program + " binary on PATH and an account signed in with `" +
 	kit.Program + " account login`."

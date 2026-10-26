@@ -21,7 +21,7 @@ import (
 // Meetings is what the calendar needs of the Meet service.
 type Meetings interface {
 	Create(context.Context, meet.NewMeeting) (*meet.Meeting, error)
-	Delete(context.Context, string) error
+	Delete(context.Context, *meet.Meeting) error
 	ByLink(context.Context, string, string) (*meet.Meeting, error)
 	SealTitle(*meet.Meeting, string) (string, error)
 }
@@ -247,7 +247,7 @@ func (s *Service) giveBack(ctx context.Context, m *meet.Meeting, err error) erro
 	if m == nil {
 		return err
 	}
-	if cleanup := s.meetings.Delete(context.WithoutCancel(ctx), m.ID); cleanup != nil {
+	if cleanup := s.meetings.Delete(context.WithoutCancel(ctx), m); cleanup != nil {
 		return &MeetingLeftBehind{ID: m.ID, Name: m.Name, Cleanup: cleanup, Err: err}
 	}
 	return err
@@ -301,7 +301,7 @@ func (s *Service) deleteByLink(ctx context.Context, name, password string, unrea
 	if err != nil {
 		return err
 	}
-	return s.meetings.Delete(ctx, m.ID)
+	return s.meetings.Delete(ctx, m)
 }
 
 // MeetingKept is a meeting that outlived the link a whole event lost: the

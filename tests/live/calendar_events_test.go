@@ -1219,10 +1219,10 @@ func TestCalendarEventsUpdateNoMeetDeletesTheMeeting(t *testing.T) {
 // createEventWithMeetLink makes an event with --meet two days ahead and hands
 // back its reference and its meeting's link name, both cleaned up afterwards.
 //
-// Deleting the event leaves its meeting, as the web client does, and only the
-// Meet host deletes a meeting. So the meeting's cleanup is registered as soon as
-// its link name is known, before anything else can stop the test, and looks
-// the meeting up itself: a meeting --no-meet deleted is the job done.
+// Deleting the event leaves its meeting, as the web client does, so the
+// meeting's cleanup is registered as soon as its link name is known, before
+// anything else can stop the test. A meeting --no-meet deleted is the job done,
+// since a cleanup counts exit 3 as gone.
 func createEventWithMeetLink(t *testing.T, purpose string) (eventID, name string) {
 	t.Helper()
 	title := testID() + "-" + purpose
@@ -1243,30 +1243,6 @@ func createEventWithMeetLink(t *testing.T, purpose string) (eventID, name string
 		t.Fatalf("no Meet link on stderr after events create --meet")
 	}
 	name, _, _ = strings.Cut(link, "#")
-	cleanup(t, fmt.Sprintf("Delete meeting: proton api GET /meet/v1/meetings/by-link/%s, "+
-		"then proton --api-url https://meet.proton.me/api api DELETE /meet/v1/meetings/ID", name),
-		func() error { return deleteMeeting(t, name) })
+	cleanupRun(t, "Delete meeting: proton meet meetings delete "+name, "meet", "meetings", "delete", name)
 	return eventID, name
-}
-
-// deleteMeeting deletes the meeting with this link name, and counts one that is
-// already gone as deleted.
-func deleteMeeting(t *testing.T, name string) error {
-	stdout, stderr, code := run(t, "api", "GET", "/meet/v1/meetings/by-link/"+name)
-	switch {
-	case code == 3:
-		return nil
-	case code != 0:
-		return fmt.Errorf("looking it up: exit %d: %s", code, strings.TrimSpace(stderr))
-	}
-	var answer struct{ Meeting struct{ ID string } }
-	if err := json.Unmarshal([]byte(stdout), &answer); err != nil || answer.Meeting.ID == "" {
-		return fmt.Errorf("looking it up: no meeting ID in the answer")
-	}
-	_, stderr, code = run(t, consenting([]string{"--api-url", "https://meet.proton.me/api",
-		"api", "DELETE", "/meet/v1/meetings/" + answer.Meeting.ID})...)
-	if code != 0 && code != 3 {
-		return fmt.Errorf("deleting it: exit %d: %s", code, strings.TrimSpace(stderr))
-	}
-	return nil
 }

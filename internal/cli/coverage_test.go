@@ -312,7 +312,9 @@ var untested = map[string]string{
 	// Proton Meet. Each of these was answered by hand on the free test account,
 	// and the suite starts only with all three accounts, so none has been
 	// recorded by a run yet.
-	"PUT /meet/v1/meetings/{id}/name": "recorded by hand against the free account, waiting for a run with all three test accounts",
+	"PUT /meet/v1/meetings/{id}/name":        "recorded by hand against the free account, waiting for a run with all three test accounts",
+	"PUT /meet/v1/meetings/{id}/schedule":    "sent successfully by hand and by the live suite on 2026-10-25, but that run did not finish green, so no recording holds it yet",
+	"POST /meet/v1/meetings/personal/rotate": "not yet sent successfully to Proton: the free account's one try was refused inside the 24-hour rotation window, waiting for a run with all three test accounts",
 }
 
 func TestEveryRequestTheCLICanSendIsOneTheSuiteSends(t *testing.T) {

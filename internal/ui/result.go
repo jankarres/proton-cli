@@ -115,6 +115,7 @@ var (
 	Set              = Action{"Set", "set", "set", Ordinary}
 	Invited          = Action{"Invited", "invite", "invited", Ordinary}
 	Revoked          = Action{"Revoked", "revoke", "revoked", Ordinary}
+	Rotated          = Action{"Rotated", "rotate", "rotated", Forever}
 	Transferred      = Action{"Transferred", "transfer", "transferred", Ordinary}
 	SignedIn         = Action{"Signed in as", "sign in as", "signed_in", Ordinary}
 	SignedOut        = Action{"Signed out", "sign out", "signed_out", Ordinary}
@@ -138,7 +139,7 @@ var Actions = []Action{
 	MarkedLegitimate, Reported,
 	Enabled, Disabled, Added, Removed, Confirmed, Left, Accepted, Declined,
 	Favorited, Unfavorited, Pinned, Unpinned, Hidden, Unhidden, Excluded, Included, Trusted, Untrusted,
-	Reactivated, Reopened, Resolved, Responded, Set, Invited, Revoked, Granted,
+	Reactivated, Reopened, Resolved, Responded, Set, Invited, Revoked, Rotated, Granted,
 	Requested, Accessed,
 	Transferred, SignedIn, SignedOut,
 }

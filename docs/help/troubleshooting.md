@@ -239,6 +239,14 @@ A run that suddenly fails with exit `5` after working fine is almost always a ra
 
 A dropped connection or a server error is retried automatically for anything that only reads, and for signing in. Nothing that changes something is ever sent twice.
 
+## "You have recently created too many meetings"
+
+Proton limits how many meetings an account can create in a while. Wait before running `proton meet meetings create`, `proton meet rooms create` or `proton calendar events create --meet` again.
+
+## "Your personal room's link can be replaced once every 24 hours"
+
+`proton meet rooms rotate personal` works once a day. Until then, `proton meet rooms get personal` shows the link the room has.
+
 ## "Work is a label, not a folder"
 
 ```console

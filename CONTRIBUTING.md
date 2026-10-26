@@ -151,7 +151,7 @@ Unit test files are named after the file they test (`size.go` → `size_test.go`
 | `cmd/proton/`, `cmd/proton-cli/` | Entry points, one per name the binary answers to |
 | `internal/cli/` | Cobra command tree, help screens, flags, exit codes |
 | `internal/cli/kit/` | The declared language: verbs, placeholders, shared flags, reference URLs |
-| `internal/service/` | Per-product logic (mail, drive, calendar, contacts, pass) |
+| `internal/service/` | Per-product logic (mail, drive, calendar, contacts, pass, meet) |
 | `internal/proton/` | API client, request plumbing, error types |
 | `internal/crypto/`, `internal/account/` | Key handling, SRP login, sessions |
 | `internal/ui/` | Output formatting: tables, records, documents, JSON, YAML, progress |

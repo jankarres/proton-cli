@@ -361,18 +361,25 @@ func TestOnlyAWholeEventLosingItsLinkSaysTheMeetingIsDeleted(t *testing.T) {
 // A meeting that outlived the link its event lost is named by the link's name,
 // with why it stayed, since the result line no longer claims it was deleted.
 func TestAMeetingThatOutlivedItsLinkIsNamed(t *testing.T) {
-	got := meetingKeptWarning(&calsvc.MeetingKept{Name: "abcdefghij", Err: errors.New("meet is down")})
+	kept := &calsvc.MeetingKept{Name: "abcdefghij", Err: errors.New("meet is down")}
+	got := meetingKeptWarning(kept)
 	if !strings.Contains(got, "abcdefghij") || !strings.Contains(got, "meet is down") ||
 		!strings.Contains(got, "could not be deleted") {
 		t.Errorf("warning = %q, want the link's name and the reason", got)
+	}
+	if got := meetingKeptHint(kept); !strings.Contains(got, "proton meet meetings delete abcdefghij") {
+		t.Errorf("hint = %q, want the command that deletes the meeting", got)
 	}
 }
 
 // A meeting an unsaved event could not take with it is named by its link's name,
 // never by Proton's internal ID.
 func TestAMeetingLeftBehindIsNamedByItsLink(t *testing.T) {
-	got := leftBehindWarning(&calsvc.MeetingLeftBehind{ID: "internal-id==", Name: "abcdefghij", Cleanup: errors.New("meet is down")})
-	if !strings.Contains(got, "abcdefghij") || strings.Contains(got, "internal-id") {
+	left := &calsvc.MeetingLeftBehind{ID: "internal-id==", Name: "abcdefghij", Cleanup: errors.New("meet is down")}
+	if got := leftBehindWarning(left); !strings.Contains(got, "abcdefghij") || strings.Contains(got, "internal-id") {
 		t.Errorf("warning = %q, want the link's name and not the ID", got)
+	}
+	if got := leftBehindHint(left); !strings.Contains(got, "proton meet meetings delete abcdefghij") {
+		t.Errorf("hint = %q, want the command that deletes the meeting", got)
 	}
 }

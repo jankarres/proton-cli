@@ -138,6 +138,7 @@ GET /mail/v4/newsletter-subscriptions
 GET /mail/v4/settings
 GET /mail/v4/smtptokens
 GET /meet/v1/meetings/by-link/{id}
+GET /meet/v1/meetings/upcoming
 GET /pass/v1/breach
 GET /pass/v1/breach/address/{id}/breaches
 GET /pass/v1/invite

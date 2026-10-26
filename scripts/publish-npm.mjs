@@ -22,7 +22,7 @@ const BIN = "proton";
 const REPO = "https://github.com/roman-16/proton-cli";
 const SITE = "https://proton-cli.lerchster.dev";
 const DESCRIPTION =
-  "Your CLI for Proton Mail, Drive, Calendar, Pass and Contacts. One binary, end-to-end encrypted.";
+  "Your CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet. One binary, end-to-end encrypted.";
 const KEYWORDS = [
   "cli",
   "command-line",
@@ -33,6 +33,7 @@ const KEYWORDS = [
   "proton-calendar",
   "proton-drive",
   "proton-mail",
+  "proton-meet",
   "proton-pass",
   "protonmail",
   "terminal",

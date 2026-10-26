@@ -23,6 +23,7 @@
     --app-calendar: linear-gradient(135deg, #6d4aff, #06b8ff);
     --app-pass: linear-gradient(135deg, #6d4aff, #ffd580);
     --app-contacts: linear-gradient(135deg, #7341ff, #b39ffb);
+    --app-meet: linear-gradient(135deg, #6d4aff, #9494ff);
   }
 
   :root:root {

@@ -1053,7 +1053,11 @@ func warnMeetingKept(c *kit.Invocation, res *calsvc.EventResult) {
 		return
 	}
 	c.Warn("%s", meetingKeptWarning(res.MeetingKept))
+	c.UI().Hint(meetingKeptHint(res.MeetingKept))
 }
+
+// meetingKeptHint is the command that deletes the meeting by hand.
+func meetingKeptHint(kept *calsvc.MeetingKept) string { return deleteMeetingHint(kept.Name) }
 
 // meetingKeptWarning names the meeting by the name its link opens with, as
 // leftBehindWarning does.
@@ -1070,7 +1074,17 @@ func leftBehind(c *kit.Invocation, err error) error {
 		return err
 	}
 	c.Warn("%s", leftBehindWarning(left))
+	c.UI().Hint(leftBehindHint(left))
 	return left.Err
+}
+
+// leftBehindHint is the command that deletes the meeting by hand.
+func leftBehindHint(left *calsvc.MeetingLeftBehind) string { return deleteMeetingHint(left.Name) }
+
+// deleteMeetingHint is the command that deletes a meeting by the name its link
+// opens with.
+func deleteMeetingHint(name string) string {
+	return "`" + kit.Program + " meet meetings delete " + name + "` deletes it."
 }
 
 // leftBehindWarning names the meeting by the name its link opens with, which is

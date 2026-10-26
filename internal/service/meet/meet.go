@@ -79,11 +79,13 @@ type NewMeeting struct {
 // Meeting is one meeting as the account sees it, with its title opened and its
 // link rebuilt.
 type Meeting struct {
-	// ID is Proton's ID of the meeting, which the routes that change it take.
-	ID string `json:"id"`
+	// ID is Proton's ID of the meeting, which the routes that change it take and
+	// no command does, so it stays out of what the CLI writes.
+	ID string `json:"-"`
 	// Name is the link name, the ten characters after id- that the link and the
-	// join page show.
-	Name  string `json:"name"`
+	// join page show. It is what a person knows the meeting by and what every
+	// command takes, so it is the meeting's id wherever the CLI writes one.
+	Name  string `json:"id"`
 	Title string `json:"title"`
 	// URL is the link, password included.
 	URL             string          `json:"url"`

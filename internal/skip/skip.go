@@ -66,6 +66,7 @@ const (
 	KindInvitation  Kind = "invitation"
 	KindItem        Kind = "item"
 	KindKey         Kind = "key"
+	KindMeeting     Kind = "meeting"
 	KindMember      Kind = "member"
 	KindMessage     Kind = "message"
 	KindProfile     Kind = "profile"

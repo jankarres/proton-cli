@@ -84,7 +84,7 @@ nfpms:
     formats: [apk, deb, rpm]
     maintainer: "Roman <roman@lerchster.dev>"
     homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
+    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet."
     license: MIT
     bindir: /usr/bin
     contents:
@@ -115,7 +115,7 @@ aurs:
   - name: proton-cli-bin
     ids: [archive]
     homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
+    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet."
     maintainers:
       - "Roman <roman@lerchster.dev>"
     license: MIT
@@ -148,7 +148,7 @@ homebrew_casks:
       name: Roman
       email: roman@lerchster.dev
     homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
+    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet."
     license: MIT
     binaries:
       - proton
@@ -171,8 +171,8 @@ winget:
       email: roman@lerchster.dev
     ids: [archive-windows]
     homepage: "https://github.com/roman-16/proton-cli"
-    short_description: "Unofficial CLI for Proton Mail, Drive, Calendar, Pass and Contacts"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
+    short_description: "Unofficial CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet"
+    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass, Contacts and Meet."
     license: MIT
     publisher_url: "https://github.com/roman-16"
     publisher_support_url: "https://github.com/roman-16/proton-cli/issues"

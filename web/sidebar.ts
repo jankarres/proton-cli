@@ -126,6 +126,10 @@ export const sidebar: NonNullable<StarlightUserConfig["sidebar"]> = [
     label: "Contacts",
   },
   {
+    items: [{ label: "Guide", slug: "meet" }, "meet/meetings", "meet/rooms"],
+    label: "Meet",
+  },
+  {
     items: [{ label: "Guide", slug: "local-index" }, "local-index/commands"],
     label: "Local index",
   },

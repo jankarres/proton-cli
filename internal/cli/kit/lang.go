@@ -145,6 +145,9 @@ var Verbs = map[string]string{
 	"logout": "discard a saved session",
 	"revoke": "stop something handed out working: a session, a public link",
 
+	// Meet
+	"rotate": "replace a link with a new one, so the old one stops working",
+
 	// The tool itself
 	"changelog":  "print what each release changed",
 	"report":     "collect what a bug report needs",
@@ -165,6 +168,9 @@ var Verbs = map[string]string{
 // `leave` is here for what it takes back: only the person who shared the thing
 // can grant it again, so nothing this account does undoes it.
 //
+// `rotate` is here for the link it replaces: everyone the old link was sent to
+// is shut out, and no client can bring that link back.
+//
 // `api` is here for the reason it is a mutation: a raw request is whatever the
 // caller made it. Nothing on the command line says which requests destroy - the
 // endpoint that permanently deletes a message is a PUT - so a policy that read
@@ -172,7 +178,7 @@ var Verbs = map[string]string{
 // side of it.
 var Irreversible = map[string]bool{
 	"api": true, "delete": true, "empty": true, "leave": true, "uninstall": true,
-	"undo": true,
+	"undo": true, "rotate": true,
 }
 
 // Opaque marks a command whose effect the CLI models nothing of, and so the one
@@ -227,7 +233,7 @@ var Mutating = map[string]bool{
 	"snooze": true, "unsnooze": true, "apply": true, "reorder": true, "favorite": true, "unfavorite": true, "pin": true,
 	"unpin": true, "hide": true, "unhide": true, "exclude": true, "include": true,
 	"trust": true, "untrust": true, "reactivate": true, "respond": true, "login": true, "logout": true,
-	"revoke": true, "uninstall": true, "transfer": true, "abuse": true,
+	"revoke": true, "uninstall": true, "transfer": true, "abuse": true, "rotate": true,
 	"grant": true, "request": true, "access": true,
 	"resolve": true, "reopen": true,
 }
