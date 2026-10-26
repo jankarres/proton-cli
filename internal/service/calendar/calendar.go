@@ -69,6 +69,9 @@ type Service struct {
 	// index is this machine's copy of the events, which is what can answer a
 	// question about what one says rather than about when it is.
 	index *search.Store
+
+	// meetings makes and deletes the Proton Meet meeting behind an event's link.
+	meetings Meetings
 }
 
 func New(c proton.Doer, k keys.Get) *Service { return &Service{C: c, keys: k} }

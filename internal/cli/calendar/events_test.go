@@ -1,6 +1,7 @@
 package calendar
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -326,5 +327,52 @@ func TestAnAttendeeIsJudgedBeforeAnythingIsAskedOfProton(t *testing.T) {
 		case tc.want != "" && !strings.Contains(err.Error(), tc.want):
 			t.Errorf("%s was refused with %q, want it to say %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// Removing the link from a whole event deletes the meeting. Removing it from one
+// occurrence, or from one onwards, leaves the meeting with the rest of the
+// series, so the sentence a preview and a result share must not claim a
+// deletion there, and the result must not claim one the Meet service refused.
+func TestOnlyAWholeEventLosingItsLinkSaysTheMeetingIsDeleted(t *testing.T) {
+	remove, add := false, true
+	for _, tt := range []struct {
+		meet       *bool
+		occurrence string
+		onwards    bool
+		kept       bool
+		want       string
+	}{
+		{nil, "", false, false, ""},
+		{&add, "", false, false, "giving it a Proton Meet link"},
+		{&add, "2026-11-03T10:00", false, false, "giving it a Proton Meet link"},
+		{&remove, "", false, false, "removing its Proton Meet link and deleting the meeting"},
+		{&remove, "", false, true, "removing its Proton Meet link"},
+		{&remove, "2026-11-03T10:00", false, false, "removing its Proton Meet link from this occurrence alone"},
+		{&remove, "2026-11-03T10:00", true, false, "removing its Proton Meet link from these occurrences alone"},
+	} {
+		got := meetClause(calsvc.EventPatch{Meet: tt.meet}, tt.occurrence, tt.onwards, tt.kept)
+		if got != tt.want {
+			t.Errorf("meetClause(%v, %q, %v, %v) = %q, want %q", tt.meet, tt.occurrence, tt.onwards, tt.kept, got, tt.want)
+		}
+	}
+}
+
+// A meeting that outlived the link its event lost is named by the link's name,
+// with why it stayed, since the result line no longer claims it was deleted.
+func TestAMeetingThatOutlivedItsLinkIsNamed(t *testing.T) {
+	got := meetingKeptWarning(&calsvc.MeetingKept{Name: "abcdefghij", Err: errors.New("meet is down")})
+	if !strings.Contains(got, "abcdefghij") || !strings.Contains(got, "meet is down") ||
+		!strings.Contains(got, "could not be deleted") {
+		t.Errorf("warning = %q, want the link's name and the reason", got)
+	}
+}
+
+// A meeting an unsaved event could not take with it is named by its link's name,
+// never by Proton's internal ID.
+func TestAMeetingLeftBehindIsNamedByItsLink(t *testing.T) {
+	got := leftBehindWarning(&calsvc.MeetingLeftBehind{ID: "internal-id==", Name: "abcdefghij", Cleanup: errors.New("meet is down")})
+	if !strings.Contains(got, "abcdefghij") || strings.Contains(got, "internal-id") {
+		t.Errorf("warning = %q, want the link's name and not the ID", got)
 	}
 }

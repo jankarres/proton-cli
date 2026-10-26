@@ -49,6 +49,11 @@ type eventBody struct {
 	// because a caller that has to build the cards once to obtain the key and once
 	// more to send them ends up wrapping a key the event was never encrypted with.
 	attendeeKeys []protonAttendee
+
+	// meetEncryptedTitle is the event's title sealed under its meeting's key.
+	// Proton gives it to the meeting when it stores the event, which is how the
+	// meeting's title follows the event's (formatData.ts in WebClients).
+	meetEncryptedTitle string
 }
 
 // optionalColor is a colour as the API takes it: the value, or null for an event
@@ -88,6 +93,9 @@ func (ck *calKeys) object(b eventBody) (map[string]any, *pgp.SessionKey, error) 
 	}
 	if keyPacket != "" {
 		event["SharedKeyPacket"] = keyPacket
+	}
+	if b.meetEncryptedTitle != "" {
+		event["VideoConferencingData"] = map[string]any{"MeetEncryptedTitle": b.meetEncryptedTitle}
 	}
 	if attendees := b.model.AttendeesEncrypted(); attendees != "" {
 		attCard, err := pgphelper.EncryptPartWithSessionKey(attendees, sk, ck.addr.Write)

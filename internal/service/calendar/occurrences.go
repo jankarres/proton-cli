@@ -9,6 +9,7 @@ import (
 	"github.com/roman-16/proton-cli/internal/errs"
 	"github.com/roman-16/proton-cli/internal/ical"
 	"github.com/roman-16/proton-cli/internal/proton"
+	"github.com/roman-16/proton-cli/internal/service/meet"
 )
 
 // A recurring event is one record standing for many occurrences, plus one extra
@@ -45,6 +46,12 @@ type EventPatch struct {
 	// meaning "none", so an event that has been given one can only be given
 	// another. Its own clients cannot do it either.
 	Color *string
+	// Meet gives the event a Proton Meet link when true, and takes the one it
+	// has away when false. Taken away from a whole event, the meeting goes too:
+	// Proton deletes a meeting once its event no longer names it. Taken away
+	// from an occurrence, or from one onwards, it leaves the series it came from
+	// naming the meeting, which therefore stays.
+	Meet *bool
 }
 
 // TouchesTimes reports whether the patch puts the event somewhere else or gives
@@ -113,9 +120,19 @@ func (p EventPatch) apply(v ical.VEvent) ical.VEvent {
 	}
 	if p.Description != nil {
 		v.Description = *p.Description
+		if hasMeetLink(v) {
+			// Events get shows the description without its join block, so what
+			// arrives here is the person's text alone. The block goes back on
+			// once, as modelToDescriptionProperties does when the web client
+			// saves. A text that carries a block of its own is cleaned first.
+			v.Description = addJoinLine(stripJoinLine(v.Description), v.ConferenceURL)
+		}
 	}
 	if p.RRule != nil {
 		v.RRule = *p.RRule
+	}
+	if p.Meet != nil && !*p.Meet {
+		v = withoutMeeting(v)
 	}
 	if !p.TouchesTimes() {
 		return v
@@ -274,6 +291,15 @@ func (s *Service) resolveOccurrence(ctx context.Context, ck *calKeys, calendarID
 	return occurrenceTarget{chain: chain, at: at, instance: instance, override: override}, nil
 }
 
+// source is the stored record the instance's content comes from: its own, when
+// it has been edited on its own, and the series' otherwise.
+func (t occurrenceTarget) source() stored {
+	if t.override != nil {
+		return *t.override
+	}
+	return t.chain.master
+}
+
 // row reports the instance as a person sees it.
 func (t occurrenceTarget) row() Event {
 	master := t.chain.master
@@ -313,6 +339,9 @@ func (t occurrenceTarget) currentVEvent() ical.VEvent {
 // the times but the recurrence rule, the exclusions, the reminders, the colour and
 // whether the account is the organizer. An update that rebuilt those from
 // defaults would quietly resurrect deleted occurrences and reset reminders.
+//
+// A change mail that cannot be worked out comes back as an error beside the
+// result, since the change itself is stored by then.
 func (s *Service) EventUpdate(ctx context.Context, calendarID, eventID string, p EventPatch) (*EventResult, error) {
 	ck, err := s.unlockCalendar(ctx, calendarID)
 	if err != nil {
@@ -324,6 +353,9 @@ func (s *Service) EventUpdate(ctx context.Context, calendarID, eventID string, p
 	}
 	if old.readErr != nil {
 		return nil, fmt.Errorf("read the event before updating it: %w", old.readErr)
+	}
+	if err := p.judgeMeet(old.model, old.raw.IsOrganizer); err != nil {
+		return nil, err
 	}
 	updated := p.apply(old.model)
 
@@ -346,25 +378,96 @@ func (s *Service) EventUpdate(ctx context.Context, calendarID, eventID string, p
 	if err != nil {
 		return nil, err
 	}
-	op, err := ck.updateOp(eventID, eventBody{
+	body := eventBody{
 		model:         updated,
 		notifications: notifs,
 		color:         p.color(old.raw),
 		isOrganizer:   old.raw.IsOrganizer,
 		keyPacket:     old.raw.SharedKeyPacket,
 		attendeeList:  attendeeList(old.raw),
-	})
+	}
+	m, err := s.meetChange(ctx, ck, p, old.model, &body)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.sync(ctx, calendarID, ck.memberID, append(ops, op)); err != nil {
-		return nil, err
+	op, err := ck.updateOp(eventID, body)
+	if err != nil {
+		return nil, s.giveBack(ctx, m, err)
 	}
-	mail, err := s.changeMail(ctx, updated, old.model, p, nil)
+	ops = append(ops, op)
+	if old.model.Recurring() && p.Meet != nil && !p.breaks() {
+		edited, err := s.carryMeet(ctx, ck, calendarID, old, body.model)
+		if err != nil {
+			return nil, s.giveBack(ctx, m, err)
+		}
+		ops = append(ops, edited...)
+	}
+	if _, err := s.sync(ctx, calendarID, ck.memberID, ops); err != nil {
+		return nil, s.giveBack(ctx, m, err)
+	}
+	res := withMeetURL(&EventResult{ID: eventID}, m)
+	if p.Meet != nil && !*p.Meet && old.raw.IsOrganizer == 1 {
+		// judgeMeet already refused an invitation. This guards the organizer's
+		// meeting against a path that one day skips it.
+		s.endMeeting(ctx, old.model, res)
+	}
+	if res.Mail, err = s.changeMail(ctx, updated, old.model, p, nil); err != nil {
+		// The change is stored, and the result says what became of its meeting.
+		return res, err
+	}
+	return res, nil
+}
+
+// carryMeet carries a whole series' new link, or its loss, to the occurrences
+// edited on their own, which would otherwise keep naming a meeting Proton is
+// about to delete, or go without the one the series was just given. It is the
+// web client's "all events" save, which merges the changed conference
+// properties into every single edit (getUpdateSingleEditMergeVevent and
+// handleConferenceDataInMergedVeventIfNeeded in getSaveEventActionsHelpers.ts).
+//
+// Only the link moves: each occurrence keeps its own title, times and text. One
+// whose link already matches the series' is left out of the batch. One with
+// another service's conference keeps it when the series loses its Proton Meet
+// link, because that call is not the one being taken away.
+func (s *Service) carryMeet(ctx context.Context, ck *calKeys, calendarID string, master stored, series ical.VEvent) ([]syncOp, error) {
+	chain, err := s.loadSeries(ctx, ck, calendarID, master)
 	if err != nil {
 		return nil, err
 	}
-	return &EventResult{ID: eventID, Mail: mail}, nil
+	var ops []syncOp
+	for _, o := range chain.overrides {
+		var v ical.VEvent
+		switch {
+		case hasMeetLink(series) && o.model.ConferenceURL != series.ConferenceURL:
+			v = withConferenceOf(o.model, series)
+		case !hasMeetLink(series) && hasMeetLink(o.model):
+			v = withoutMeeting(o.model)
+		default:
+			continue
+		}
+		v.Sequence = max(ical.NextSequence(o.model, v), series.Sequence)
+		op, err := ck.updateOp(o.raw.ID, eventBody{
+			model:         v,
+			notifications: o.raw.notifications(),
+			color:         o.raw.Color,
+			isOrganizer:   o.raw.IsOrganizer,
+			keyPacket:     o.raw.SharedKeyPacket,
+			attendeeList:  attendeeList(o.raw),
+		})
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+// withMeetURL puts the link of a meeting a write made on its result.
+func withMeetURL(res *EventResult, m *meet.Meeting) *EventResult {
+	if m != nil {
+		res.MeetURL = m.URL
+	}
+	return res
 }
 
 // OccurrenceUpdate changes one instance of a series, writing the extra record
@@ -384,6 +487,9 @@ func (s *Service) OccurrenceUpdate(ctx context.Context, calendarID, eventID, occ
 	}
 
 	current := target.currentVEvent()
+	if err := p.judgeMeet(current, master.raw.IsOrganizer); err != nil {
+		return nil, err
+	}
 	updated := p.apply(current).AsOverride(master.model, target.at)
 	// A replacement may never claim to be older than the series it belongs to, and
 	// Proton refuses a sequence that goes backwards.
@@ -399,6 +505,10 @@ func (s *Service) OccurrenceUpdate(ctx context.Context, calendarID, eventID, occ
 		color:         p.color(overrideRaw(target, master)),
 		isOrganizer:   master.raw.IsOrganizer,
 	}
+	m, err := s.meetChange(ctx, ck, p, current, &body)
+	if err != nil {
+		return nil, err
+	}
 
 	var ops []syncOp
 	var external []string
@@ -407,7 +517,7 @@ func (s *Service) OccurrenceUpdate(ctx context.Context, calendarID, eventID, occ
 		body.attendeeList = attendeeList(target.override.raw)
 		op, err := ck.updateOp(target.override.raw.ID, body)
 		if err != nil {
-			return nil, err
+			return nil, s.giveBack(ctx, m, err)
 		}
 		ops = append(ops, op)
 	} else {
@@ -423,26 +533,26 @@ func (s *Service) OccurrenceUpdate(ctx context.Context, calendarID, eventID, occ
 			attendeeList:  attendeeList(master.raw),
 		})
 		if err != nil {
-			return nil, err
+			return nil, s.giveBack(ctx, m, err)
 		}
 		if external, err = s.attachAttendees(ctx, &body, emailsOf(updated)); err != nil {
-			return nil, err
+			return nil, s.giveBack(ctx, m, err)
 		}
 		op, _, err := ck.createOp(body)
 		if err != nil {
-			return nil, err
+			return nil, s.giveBack(ctx, m, err)
 		}
 		ops = append(ops, parent, op)
 	}
 
 	if _, err := s.sync(ctx, calendarID, ck.memberID, ops); err != nil {
-		return nil, err
+		return nil, s.giveBack(ctx, m, err)
 	}
 	mail, err := s.changeMail(ctx, updated, current, p, external)
 	if err != nil {
 		return nil, err
 	}
-	return &EventResult{ID: eventID, Mail: mail}, nil
+	return withMeetURL(&EventResult{ID: eventID, Mail: mail}, m), nil
 }
 
 // SeriesSplit changes one instance and every later one: the series is ended just
@@ -468,6 +578,9 @@ func (s *Service) SeriesSplit(ctx context.Context, calendarID, eventID, occurren
 	truncated.Sequence = master.model.Sequence + 1
 
 	current := target.currentVEvent()
+	if err := p.judgeMeet(current, master.raw.IsOrganizer); err != nil {
+		return nil, err
+	}
 	remainder := p.apply(current)
 	remainder.RRule = master.model.RRule
 	if p.RRule != nil {
@@ -496,13 +609,20 @@ func (s *Service) SeriesSplit(ctx context.Context, calendarID, eventID, occurren
 		color:         p.color(master.raw),
 		isOrganizer:   master.raw.IsOrganizer,
 	}
-	external, err := s.attachAttendees(ctx, &tailBody, emailsOf(remainder))
+	// The link is changed on the rest of the series alone, as every other field
+	// is. The first half is written back as it was, link included, which is
+	// what the web client's deleteFutureRecurrence does.
+	m, err := s.meetChange(ctx, ck, p, current, &tailBody)
 	if err != nil {
 		return nil, err
 	}
+	external, err := s.attachAttendees(ctx, &tailBody, emailsOf(remainder))
+	if err != nil {
+		return nil, s.giveBack(ctx, m, err)
+	}
 	tail, _, err := ck.createOp(tailBody)
 	if err != nil {
-		return nil, err
+		return nil, s.giveBack(ctx, m, err)
 	}
 
 	ops := make([]syncOp, 0, len(target.chain.overrides)+2)
@@ -515,13 +635,13 @@ func (s *Service) SeriesSplit(ctx context.Context, calendarID, eventID, occurren
 
 	created, err := s.sync(ctx, calendarID, ck.memberID, ops)
 	if err != nil {
-		return nil, err
+		return nil, s.giveBack(ctx, m, err)
 	}
 	mail, err := s.changeMail(ctx, remainder, current, p, external)
 	if err != nil {
 		return nil, err
 	}
-	res := &EventResult{ID: eventID, Mail: mail}
+	res := withMeetURL(&EventResult{ID: eventID, Mail: mail}, m)
 	if len(created) > 0 {
 		res.ID = created[len(created)-1]
 	}

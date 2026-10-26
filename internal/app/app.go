@@ -32,6 +32,7 @@ import (
 	"github.com/roman-16/proton-cli/internal/service/contacts"
 	"github.com/roman-16/proton-cli/internal/service/drive"
 	"github.com/roman-16/proton-cli/internal/service/mail"
+	"github.com/roman-16/proton-cli/internal/service/meet"
 	"github.com/roman-16/proton-cli/internal/service/pass"
 	"github.com/roman-16/proton-cli/internal/ui"
 )
@@ -48,6 +49,7 @@ type App struct {
 	Mail     *mail.Service
 	Drive    *drive.Service
 	Calendar *calendar.Service
+	Meet     *meet.Service
 	Contacts *contacts.Service
 	Pass     *pass.Service
 
@@ -185,6 +187,8 @@ func New(opts Options) (*App, error) {
 	a.Drive.SetIndex(a.Index)
 	a.Calendar = calendar.New(c, a.Unlock)
 	a.Calendar.SetIndex(a.Index)
+	a.Meet = meet.New(c, a.Unlock)
+	a.Calendar.SetMeetings(a.Meet)
 	a.Contacts = contacts.New(c, a.Unlock)
 	a.Pass = pass.New(c, a.Unlock)
 	// The client persists the session file whenever its tokens change (e.g. a

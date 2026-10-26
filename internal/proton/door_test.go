@@ -21,22 +21,31 @@ func TestARequestGoesThroughTheDoorItNames(t *testing.T) {
 	for _, tc := range []struct {
 		base        string
 		accountHost bool
+		meetHost    bool
 		want        string
 	}{
 		{base: "https://mail.proton.me/api", want: "https://mail.proton.me/api"},
 		{base: "https://mail.proton.me/api", accountHost: true, want: "https://account.proton.me/api"},
 		{base: "https://mail-api.proton.me/api", accountHost: true, want: "https://account.proton.me/api"},
+		{base: "https://mail.proton.me/api", meetHost: true, want: "https://meet.proton.me/api"},
+		{base: "https://mail-api.proton.me/api", meetHost: true, want: "https://meet.proton.me/api"},
+		// Asking for both doors is a mistake in the caller, and the account
+		// host wins it: see Request.MeetHost.
+		{base: "https://mail.proton.me/api", accountHost: true, meetHost: true,
+			want: "https://account.proton.me/api"},
 		// A host with no siblings keeps whatever the CLI was pointed at: a
 		// local API, an address rather than a name, Proton's DoH front.
 		{base: "http://localhost:8080", accountHost: true, want: "http://localhost:8080"},
 		{base: "https://192.0.2.10/api", accountHost: true, want: "https://192.0.2.10/api"},
+		{base: "http://localhost:8080", meetHost: true, want: "http://localhost:8080"},
+		{base: "https://192.0.2.10/api", meetHost: true, want: "https://192.0.2.10/api"},
 		{base: "https://ec2-1-2-3-4.compute.amazonaws.com/api", accountHost: true,
 			want: "https://ec2-1-2-3-4.compute.amazonaws.com/api"},
 	} {
 		c := New(Options{BaseURL: tc.base, Logger: slog.New(slog.DiscardHandler)})
-		if got := c.doorFor(Request{AccountHost: tc.accountHost}); got != tc.want {
-			t.Errorf("%s (account host %v) goes to %s, want %s",
-				tc.base, tc.accountHost, got, tc.want)
+		if got := c.doorFor(Request{AccountHost: tc.accountHost, MeetHost: tc.meetHost}); got != tc.want {
+			t.Errorf("%s (account host %v, meet host %v) goes to %s, want %s",
+				tc.base, tc.accountHost, tc.meetHost, got, tc.want)
 		}
 	}
 }

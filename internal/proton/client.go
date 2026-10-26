@@ -307,6 +307,17 @@ type Request struct {
 	// session is the same either way.
 	AccountHost bool
 
+	// MeetHost sends this request to the host Proton serves Meet from.
+	//
+	// Meet's routes, except creating a meeting and looking one up by its link,
+	// answer only at meet.proton.me (verified 2026-10-25), so every /meet/v1/
+	// request names this door, the two that would also work elsewhere
+	// included, and one rule covers the app. A request naming both this and
+	// AccountHost is a mistake in the caller: it goes to the account host,
+	// which is the older rule, rather than tearing down the request in the
+	// transport.
+	MeetHost bool
+
 	// Proves says that this endpoint wants the account password proved inside the
 	// request itself, rather than answered for beforehand.
 	//
@@ -520,14 +531,20 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 // a local API, an address rather than a name - is the only door there is, and
 // a request that wanted another gets this one and whatever it answers.
 func (c *Client) doorFor(req Request) string {
-	if !req.AccountHost {
+	var subdomain string
+	switch {
+	case req.AccountHost:
+		subdomain = accountSubdomain
+	case req.MeetHost:
+		subdomain = meetSubdomain
+	default:
 		return c.base
 	}
 	u, err := url.Parse(c.base)
 	if err != nil {
 		return c.base
 	}
-	host, ok := siblingHost(u.Hostname(), accountSubdomain)
+	host, ok := siblingHost(u.Hostname(), subdomain)
 	if !ok {
 		return c.base
 	}
@@ -540,6 +557,9 @@ func (c *Client) doorFor(req Request) string {
 
 // accountSubdomain is where Proton serves what only its account app reaches.
 const accountSubdomain = "account"
+
+// meetSubdomain is where Proton serves Meet's endpoints.
+const meetSubdomain = "meet"
 
 // guardRefuses asks the guard about a request that would go out as nobody.
 //

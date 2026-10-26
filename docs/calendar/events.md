@@ -14,6 +14,8 @@ Create an event.
 
 Without --end or --duration an event lasts as long as the calendar it is made in says a new event lasts, which `settings calendars get` shows; an all-day event lasts a day.
 
+--meet gives the event a Proton Meet link and prints it below the confirmation.
+
 --color gives an event a color of its own; without one it is drawn in its calendar's. Once it has one there is no way back. A color of its own is a paid feature: on a free account it is stored but not drawn.
 
 ```
@@ -27,6 +29,7 @@ proton calendar events create --title Holiday --start 2026-07-01 --all-day --cal
 proton calendar events create --title 'Design review' --start 2026-04-20T10:00 --end 2026-04-20T10:45 --attendee jane@example.com --location 'Room 3'
 proton calendar events create --title Renewal --start 2026-09-01T09:00 --remind 1d:email
 proton calendar events create --title Deadline --start 2026-04-30T17:00 --duration 1h --color strawberry
+proton calendar events create --title 'Design review' --start 2026-04-20T10:00 --duration 30m --meet
 ```
 
 | Flag | Description |
@@ -39,6 +42,7 @@ proton calendar events create --title Deadline --start 2026-04-30T17:00 --durati
 | `--duration string` | Set how long it lasts (e.g. 15m, 1h, 2h30m, 3d) |
 | `--end string` | Set the end: the last day it runs through, or a day and a time |
 | `--location string` | Set where it is |
+| `--meet` | Give it a Proton Meet link |
 | `--remind stringArray` | Remind this long before the start, as DURATION or DURATION:email (repeatable) |
 | `--rrule string` | Set the recurrence rule, e.g. FREQ=WEEKLY;COUNT=10 |
 | `--start string` | Set the start: a day, or a day and a time (2026-04-16, 2026-04-16T14:00, or full RFC 3339) |
@@ -186,6 +190,8 @@ Anything you do not mention is left alone, including the reminders and the recur
 
 A reference that names one occurrence of a recurring event changes only that occurrence. Add --onwards to change it and every later one, or drop the @ part of the reference to change the whole series, which --dry-run will show you before you do.
 
+--meet gives the event a Proton Meet link and prints it below the confirmation. --no-meet removes the link and deletes its meeting. On one occurrence, or with --onwards, only those occurrences lose the link and the meeting stays.
+
 --color gives an event a color of its own; without one it is drawn in its calendar's. Once it has one there is no way back. A color of its own is a paid feature: on a free account it is stored but not drawn.
 
 ```
@@ -199,6 +205,8 @@ proton calendar events update 4f2a1b9c@2026-04-22T09:00 --title Standup --onward
 proton calendar events update Offsite --all-day
 proton calendar events update Offsite --all-day=false --start 2026-07-01T09:00 --end 2026-07-01T17:00
 proton calendar events update Dentist --color pacific
+proton calendar events update 'Design review' --meet
+proton calendar events update 'Design review' --no-meet
 ```
 
 | Flag | Description |
@@ -209,6 +217,8 @@ proton calendar events update Dentist --color pacific
 | `--duration string` | Replace how long it lasts (e.g. 15m, 1h, 2h30m, 3d) |
 | `--end string` | Replace the end: the last day it runs through, or a day and a time |
 | `--location string` | Replace where it is |
+| `--meet` | Give it a Proton Meet link |
+| `--no-meet` | Remove its Proton Meet link (a whole event's meeting is deleted) |
 | `--no-remind` | Remove the reminders |
 | `--onwards` | Also change every later occurrence of the series |
 | `--remind stringArray` | Remind this long before the start, as DURATION or DURATION:email (repeatable) |

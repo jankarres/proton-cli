@@ -298,8 +298,9 @@ var words = map[string]bool{
 // A public link's token is ten characters of letters and digits, which nothing
 // can tell apart from a word, so it is recognised by where it sits instead. A
 // token left as itself would put one run's links in a file every run has to
-// agree with.
-var holders = map[string]bool{"urls": true}
+// agree with. A Proton Meet link name is the same shape, ten capitals and
+// digits, and is looked up under by-link.
+var holders = map[string]bool{"urls": true, "by-link": true}
 
 var numeric = regexp.MustCompile(`^[0-9]+$`)
 

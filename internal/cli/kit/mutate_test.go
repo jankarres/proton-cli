@@ -303,3 +303,21 @@ func TestAPartialChangeListsOnlyWhatLanded(t *testing.T) {
 		t.Errorf("the refusal was not named: %q", errb.String())
 	}
 }
+
+// A change that turned out smaller than the one asked for is confirmed as it
+// happened: the question said what was asked, the result says what was done.
+func TestAChangeIsConfirmedAsItHappened(t *testing.T) {
+	var errb bytes.Buffer
+	a := signedIn(&app.App{Yes: true})
+	a.UI = ui.New(ui.Options{Format: ui.FormatText, Out: &bytes.Buffer{}, Err: &errb, NoInput: true})
+	c := &Invocation{Ctx: context.Background(), App: a}
+	spec := ui.ResultSpec{Action: ui.Updated, Kind: "events", Count: 1, Name: "Standup",
+		Detail: "removing its Proton Meet link and deleting the meeting"}
+	err := MutateAs(c, spec, func() (string, error) { return "removing its Proton Meet link", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := errb.String(); !strings.Contains(got, "removing its Proton Meet link") || strings.Contains(got, "deleting") {
+		t.Errorf("confirmation = %q, want what happened", got)
+	}
+}

@@ -200,6 +200,7 @@ func eventsGetCmd() *cobra.Command {
 					{Label: "Duration", Value: length(ev.Start, ev.End, ev.AllDay)},
 					{Label: "Location", Value: ev.Location},
 					{Label: "Description", Value: ev.Description},
+					{Label: "Meet link", Value: ev.MeetURL},
 					{Label: "Recurrence", Value: ev.RRule},
 					{Label: "Occurrence", Value: occurrenceLabel(*ev)},
 					{Label: "Series", Value: seriesLabel(*ev)},
@@ -289,6 +290,7 @@ func eventsCreateCmd() *cobra.Command {
 	var d details
 	var calendar string
 	var attendees []string
+	var meet bool
 	c := &cobra.Command{
 		Use:   "create",
 		Short: "Create an event",
@@ -297,7 +299,9 @@ func eventsCreateCmd() *cobra.Command {
 			"with no time of day, which --all-day has to say as well.\n\n" +
 			"Without --end or --duration an event lasts as long as the calendar it is made\n" +
 			"in says a new event lasts, which `settings calendars get` shows; an all-day\n" +
-			"event lasts a day.\n\n" + colorParagraph,
+			"event lasts a day.\n\n" +
+			"--meet gives the event a Proton Meet link and prints it below the\n" +
+			"confirmation.\n\n" + colorParagraph,
 		RunE: kit.Run([]kit.Step{d.check(true), judgeAttendees(&attendees)}, func(c *kit.Invocation) error {
 			if d.title == "" || d.start == "" {
 				return kit.Fail("An event needs a title and a start.").
@@ -339,21 +343,23 @@ func eventsCreateCmd() *cobra.Command {
 					Title: d.title, Location: d.location, Description: d.description,
 					Start: start, Duration: dur,
 					RRule: d.rrule, Reminders: d.reminders, Attendees: attendees,
-					Status: calsvc.ICalStatus(status), Color: d.color.Value(),
+					Status: calsvc.ICalStatus(status), Color: d.color.Value(), Meet: meet,
 				})
 				if err != nil {
-					return "", err
+					return "", leftBehind(c, err)
 				}
 				return kit.JoinPair(calID, res.ID), nil
 			}); err != nil {
 				return err
 			}
+			showMeetLink(c, res)
 			return tellAttendees(c, res)
 		}),
 	}
 	d.register(c, "Set")
 	c.Flags().StringVar(&calendar, "calendar", "", "Which calendar, by name or ID (default: your default calendar)")
 	c.Flags().BoolVar(&d.allDay, "all-day", false, "An event with no time of day")
+	c.Flags().BoolVar(&meet, "meet", false, "Give it a Proton Meet link")
 	c.Flags().StringArrayVar(&attendees, "attendee", nil,
 		"Invite someone, as EMAIL or EMAIL:optional; Proton users are added directly, "+
 			"others are emailed (repeatable)")
@@ -362,7 +368,7 @@ func eventsCreateCmd() *cobra.Command {
 
 func eventsUpdateCmd() *cobra.Command {
 	var d details
-	var onwards bool
+	var onwards, meet, noMeet bool
 	c := &cobra.Command{
 		Use:   "update REF",
 		Short: "Change an event's title, time, location, description or recurrence",
@@ -377,7 +383,12 @@ func eventsUpdateCmd() *cobra.Command {
 			"A reference that names one occurrence of a recurring event changes only that\n" +
 			"occurrence. Add --onwards to change it and every later one, or drop the @ part\n" +
 			"of the reference to change the whole series, which --dry-run will show you\n" +
-			"before you do.\n\n" + colorParagraph,
+			"before you do.\n\n" +
+			"--meet gives the event a Proton Meet link and prints it below the\n" +
+			"confirmation. --no-meet removes the link and deletes its meeting. On one\n" +
+			"occurrence, or with --onwards, only those occurrences lose the link and the\n" +
+			"meeting stays.\n\n" +
+			colorParagraph,
 		RunE: kit.Run([]kit.Step{d.check(false), kit.StepExpand}, func(c *kit.Invocation) error {
 			calID, eventID, occurrence, err := resolveEvent(c, c.Args[0])
 			if err != nil {
@@ -398,12 +409,19 @@ func eventsUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if meet || noMeet {
+				patch.Meet = &meet
+			}
+			detail := func(kept bool) string {
+				return clauses(reached.clause(occurrence, onwards), reached.moved(patch), length,
+					meetClause(patch, occurrence, onwards, kept))
+			}
 			var res *calsvc.EventResult
-			if err := kit.Mutate(c, ui.ResultSpec{
+			if err := kit.MutateAs(c, ui.ResultSpec{
 				Action: ui.Updated, Kind: "events", Count: 1, Name: reached.name(d.title),
 				IDs: []string{c.Args[0]}, Preview: reached.preview(), Extra: reached.extra(),
-				Detail: clauses(reached.clause(occurrence, onwards), reached.moved(patch), length),
-			}, func() error {
+				Detail: detail(false),
+			}, func() (string, error) {
 				var err error
 				switch {
 				case occurrence == "":
@@ -413,10 +431,21 @@ func eventsUpdateCmd() *cobra.Command {
 				default:
 					res, err = c.App.Calendar.OccurrenceUpdate(c.Ctx, calID, eventID, occurrence, patch)
 				}
-				return err
+				if res == nil || res.MeetingKept == nil {
+					return "", leftBehind(c, err)
+				}
+				if err != nil {
+					// The change is stored, so the meeting it left is named
+					// before the failure that follows it is reported.
+					warnMeetingKept(c, res)
+					return "", err
+				}
+				return detail(true), nil
 			}); err != nil {
 				return err
 			}
+			showMeetLink(c, res)
+			warnMeetingKept(c, res)
 			return tellAttendees(c, res)
 		}),
 	}
@@ -425,7 +454,34 @@ func eventsUpdateCmd() *cobra.Command {
 	c.Flags().BoolVar(&d.noReminders, "no-remind", false, "Remove the reminders")
 	kit.Exclusive(c, "remind", "no-remind")
 	c.Flags().BoolVar(&onwards, "onwards", false, "Also change every later occurrence of the series")
+	c.Flags().BoolVar(&meet, "meet", false, "Give it a Proton Meet link")
+	c.Flags().BoolVar(&noMeet, "no-meet", false, "Remove its Proton Meet link (a whole event's meeting is deleted)")
+	kit.Exclusive(c, "meet", "no-meet")
 	return c
+}
+
+// meetClause says what an update does to the event's Proton Meet link, so the
+// preview, the confirmation and the result all say what happens to the meeting.
+//
+// Only a whole event losing its link deletes the meeting. An occurrence, or the
+// rest of a series from one onwards, loses the link while the series it came
+// from still names the meeting, so the meeting stays. kept is a whole event's
+// meeting that could not be deleted after all, which the result must not claim
+// was, and which warnMeetingKept names.
+func meetClause(p calsvc.EventPatch, occurrence string, onwards, kept bool) string {
+	switch {
+	case p.Meet == nil:
+		return ""
+	case *p.Meet:
+		return "giving it a Proton Meet link"
+	case occurrence == "" && kept:
+		return "removing its Proton Meet link"
+	case occurrence == "":
+		return "removing its Proton Meet link and deleting the meeting"
+	case onwards:
+		return "removing its Proton Meet link from these occurrences alone"
+	}
+	return "removing its Proton Meet link from this occurrence alone"
 }
 
 // patch turns the flags the user actually set into the change to make, and the
@@ -978,6 +1034,50 @@ func tellAttendees(c *kit.Invocation, res *calsvc.EventResult) error {
 			ui.Quantity(len(m.Recipients), "attendees"), err)
 	}
 	return nil
+}
+
+// showMeetLink prints the link a new event was given. The ID stays the only
+// thing on stdout, and a machine format stays the one document it already is:
+// a script reads the link from `events get`.
+func showMeetLink(c *kit.Invocation, res *calsvc.EventResult) {
+	if res == nil || res.MeetURL == "" || c.UI().Format.Machine() {
+		return
+	}
+	c.Note("Join with Proton Meet: %s", res.MeetURL)
+}
+
+// warnMeetingKept names the meeting that outlived the link a whole event lost,
+// so the person can delete it. The event's change stands.
+func warnMeetingKept(c *kit.Invocation, res *calsvc.EventResult) {
+	if res == nil || res.MeetingKept == nil {
+		return
+	}
+	c.Warn("%s", meetingKeptWarning(res.MeetingKept))
+}
+
+// meetingKeptWarning names the meeting by the name its link opens with, as
+// leftBehindWarning does.
+func meetingKeptWarning(kept *calsvc.MeetingKept) string {
+	return fmt.Sprintf("The event no longer has its Proton Meet link, but the meeting %s could not be deleted: %v",
+		kept.Name, kept.Err)
+}
+
+// leftBehind names a meeting that an event which failed to save could not take
+// with it, so the person can delete it, and hands back the failure itself.
+func leftBehind(c *kit.Invocation, err error) error {
+	var left *calsvc.MeetingLeftBehind
+	if !errors.As(err, &left) {
+		return err
+	}
+	c.Warn("%s", leftBehindWarning(left))
+	return left.Err
+}
+
+// leftBehindWarning names the meeting by the name its link opens with, which is
+// what the person can recognise, rather than by Proton's own ID.
+func leftBehindWarning(left *calsvc.MeetingLeftBehind) string {
+	return fmt.Sprintf("The event was not saved, and the Proton Meet meeting %s made for it could not be deleted: %v",
+		left.Name, left.Cleanup)
 }
 
 // listedCalendars is the set a listing covers: the one asked for, or all of them.

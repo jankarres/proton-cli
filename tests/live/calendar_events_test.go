@@ -1187,3 +1187,86 @@ func TestCalendarNewEventsGoToTheDefaultCalendar(t *testing.T) {
 		t.Errorf("after deleting the default calendar the default is %q, want the next calendar of your own", got)
 	}
 }
+
+// An event made with --meet answers with its bare reference like any other, and
+// the link goes to stderr, where a person sees it and a script capturing the
+// reference does not.
+func TestCalendarEventsCreateWithMeetLink(t *testing.T) {
+	_, name := createEventWithMeetLink(t, "meet")
+
+	meeting := runJSON(t, "api", "GET", "/meet/v1/meetings/by-link/"+name)
+	m, _ := meeting["Meeting"].(map[string]any)
+	if got, _ := m["ProtonCalendar"].(float64); got != 1 {
+		t.Errorf("meeting %s: ProtonCalendar = %v, want 1", name, m["ProtonCalendar"])
+	}
+}
+
+// --no-meet on a whole event takes the link off it and deletes its meeting.
+func TestCalendarEventsUpdateNoMeetDeletesTheMeeting(t *testing.T) {
+	eventID, name := createEventWithMeetLink(t, "no-meet")
+
+	_, stderr := runOKStderr(t, "calendar", "events", "update", eventID, "--no-meet")
+	assertContains(t, stderr, "removing its Proton Meet link and deleting the meeting")
+
+	if _, found := runJSON(t, "calendar", "events", "get", eventID)["meet_url"]; found {
+		t.Errorf("events get still has a meet_url after --no-meet")
+	}
+	if _, stderr, code := run(t, "api", "GET", "/meet/v1/meetings/by-link/"+name); code != 3 {
+		t.Errorf("meeting %s after --no-meet: exit %d, want 3 (gone): %s", name, code, strings.TrimSpace(stderr))
+	}
+}
+
+// createEventWithMeetLink makes an event with --meet two days ahead and hands
+// back its reference and its meeting's link name, both cleaned up afterwards.
+//
+// Deleting the event leaves its meeting, as the web client does, and only the
+// Meet host deletes a meeting. So the meeting's cleanup is registered as soon as
+// its link name is known, before anything else can stop the test, and looks
+// the meeting up itself: a meeting --no-meet deleted is the job done.
+func createEventWithMeetLink(t *testing.T, purpose string) (eventID, name string) {
+	t.Helper()
+	title := testID() + "-" + purpose
+	start := time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")
+
+	stdout, stderr := runOKStderr(t, "calendar", "events", "create",
+		"--calendar", "Default",
+		"--title", title,
+		"--start", start,
+		"--duration", "30m",
+		"--meet")
+	eventID = assertBarePairRef(t, stdout, "events create --meet")
+	cleanupRun(t, fmt.Sprintf("Delete event: proton calendar events delete -- %s", eventID),
+		"calendar", "events", "delete", "--", eventID)
+
+	_, link, found := strings.Cut(stderr, "Join with Proton Meet: https://meet.proton.me/join/id-")
+	if !found {
+		t.Fatalf("no Meet link on stderr after events create --meet")
+	}
+	name, _, _ = strings.Cut(link, "#")
+	cleanup(t, fmt.Sprintf("Delete meeting: proton api GET /meet/v1/meetings/by-link/%s, "+
+		"then proton --api-url https://meet.proton.me/api api DELETE /meet/v1/meetings/ID", name),
+		func() error { return deleteMeeting(t, name) })
+	return eventID, name
+}
+
+// deleteMeeting deletes the meeting with this link name, and counts one that is
+// already gone as deleted.
+func deleteMeeting(t *testing.T, name string) error {
+	stdout, stderr, code := run(t, "api", "GET", "/meet/v1/meetings/by-link/"+name)
+	switch {
+	case code == 3:
+		return nil
+	case code != 0:
+		return fmt.Errorf("looking it up: exit %d: %s", code, strings.TrimSpace(stderr))
+	}
+	var answer struct{ Meeting struct{ ID string } }
+	if err := json.Unmarshal([]byte(stdout), &answer); err != nil || answer.Meeting.ID == "" {
+		return fmt.Errorf("looking it up: no meeting ID in the answer")
+	}
+	_, stderr, code = run(t, consenting([]string{"--api-url", "https://meet.proton.me/api",
+		"api", "DELETE", "/meet/v1/meetings/" + answer.Meeting.ID})...)
+	if code != 0 && code != 3 {
+		return fmt.Errorf("deleting it: exit %d: %s", code, strings.TrimSpace(stderr))
+	}
+	return nil
+}

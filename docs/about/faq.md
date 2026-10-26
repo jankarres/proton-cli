@@ -100,7 +100,9 @@ For a scheduled one-way copy, `proton drive items upload --recursive` in a cron 
 
 ## What about VPN, Wallet, Docs, Meet, Lumo and Authenticator?
 
-Not covered, and not planned. proton-cli mirrors what the Proton **web clients** let you do for Mail, Drive, Calendar, Pass and Contacts.
+Not covered. proton-cli mirrors what the Proton **web clients** let you do for Mail, Drive, Calendar, Pass and Contacts.
+
+Of Meet, only the link on a calendar event is covered yet: `proton calendar events create --meet` gives an event one ([Calendar](../calendar/README.md#add-a-video-call-to-an-event)).
 
 Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool). See [What it can't do](../help/limits.md).
 
@@ -108,7 +110,7 @@ Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool). See 
 
 No, and neither can any terminal program. Both hand you off to another company's consent screen - Google's, Zoom's - and only a browser can complete one. Proton's own importer works the same way.
 
-Set those up in the web client. Whatever they produce is readable here like anything else.
+Set those up in the web client. Whatever they produce is readable here like anything else. A Proton Meet link is different: `--meet` adds one ([Calendar](../calendar/README.md#add-a-video-call-to-an-event)).
 
 ## Does it support security keys?
 

@@ -18,6 +18,12 @@ A refusal that comes from Proton rather than from proton-cli belongs to [Trouble
 
 **A recurring event needs a zone that can be named.** proton reads one from `TZ`, `/etc/localtime` or `/etc/timezone`, then from your Proton calendar settings. Where none of those answers, a recurring event drifts by an hour when the clocks change. Pass `--zone Europe/Vienna` to be sure.
 
+**A new title for a whole series skips the occurrences you edited on their own.** They keep the title they had. Change each of them by its own reference ([Calendar](../calendar/README.md#recurring-events-occurrence-by-occurrence)).
+
+**Deleting an event leaves its Proton Meet meeting in place.** Run `proton calendar events update REF --no-meet` first to delete the meeting with the link.
+
+**Proton limits how many meetings an account can make in a while.** When it answers "You have recently created too many meetings", wait before trying `--meet` again.
+
 **A time on somebody else's booking page is booked in a browser.** Open the link they sent you. Your own booking pages are made and changed with `proton calendar booking-pages`.
 
 **A regular expression rule on a login's URL is set in a Pass app.** `proton pass items get` shows one, and `--url` takes every other rule ([Pass](../pass/README.md#choose-where-a-login-fills-in)).
@@ -28,7 +34,7 @@ A refusal that comes from Proton rather than from proton-cli belongs to [Trouble
 
 proton-cli mirrors the Proton web clients for Mail, Drive, Calendar, Pass and Contacts.
 
-Other Proton products are not covered: VPN, Wallet, Docs, Meet, Lumo and Authenticator. Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool).
+Other Proton products are not covered: VPN, Wallet, Docs, Lumo and Authenticator. Of Meet, only the link on a calendar event is covered ([Calendar](../calendar/README.md#add-a-video-call-to-an-event)). Proton VPN has [its own CLI](https://protonvpn.com/support/linux-vpn-tool).
 
 Endpoints that exist in the API but have no equivalent action in a web client are also out of scope.
 

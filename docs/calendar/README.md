@@ -195,6 +195,54 @@ A series with no end says so instead of giving a number.
 
 `--onwards` on the *first* occurrence is refused. Delete the series instead.
 
+## Add a video call to an event
+
+```bash
+proton calendar events create --title 'Design review' --start 2026-04-20T10:00 --duration 30m --meet
+proton calendar events update 'Design review' --meet
+```
+
+`--meet` gives an event a Proton Meet link. The confirmation prints it on the line below:
+
+```console
+$ proton calendar events create --title 'Task5 Meet' --start 2026-10-30T11:00 --duration 30m --meet
+✓ Created event "Task5 Meet" in My calendar for 2026-10-30 11:00 Europe/Berlin.
+Join with Proton Meet: https://meet.proton.me/join/id-865JZ8JMHG#pwd-…
+```
+
+`events get` shows the link, as `meet_url` in JSON. A listing never does. An event that already has a link is refused.
+
+```console
+$ proton calendar events get 'Task5 Meet'
+Title:      Task5 Meet
+Start:      2026-10-30 11:00
+End:        2026-10-30 11:30
+Duration:   30m
+Meet link:  https://meet.proton.me/join/id-865JZ8JMHG#pwd-…
+Zone:       Europe/Berlin
+Status:     confirmed
+Calendar:   My calendar
+Signature:  verified
+ID:         t5i11Y…/_KxYwM…
+```
+
+A new title for the event becomes the meeting's title as well. Any other change leaves the link alone.
+
+`--no-meet` takes the link away and deletes the meeting:
+
+```console
+$ proton calendar events update 'Task5 Meet' --no-meet --dry-run
+Dry run - would update event "Task5 Meet" removing its Proton Meet link and deleting the meeting.
+```
+
+If the meeting cannot be deleted, the event still loses its link, and a warning names the meeting.
+
+On a whole series, `--meet` and `--no-meet` reach the occurrences you edited on their own as well. On one occurrence, or with `--onwards`, only those occurrences lose the link, and the meeting stays for the rest of the series.
+
+On an event you were invited to, the link belongs to the organizer: `--meet` and `--no-meet` are refused.
+
+A link is added only when you pass `--meet`, also on an event with attendees. Deleting an event leaves its meeting, as [What it can't do](../help/limits.md#known-gaps) explains.
+
 ## Reminders
 
 `events list` shows which triggers an event carries. `reminders list` answers the other question, which is when they go off:
@@ -232,6 +280,8 @@ curl -s https://example.com/team.ics | proton calendar events import -
 ```
 
 A recurring series is exported **once** with its rule rather than expanded, so another client reads it back as the same series. Reminders travel as `VALARM` components. An event that cannot be decrypted is left out rather than written as a stub.
+
+An export carries an event's Proton Meet link. An import leaves the link off the event.
 
 An event's own colour travels as a `COLOR` property, so a round trip keeps it. On the way in, a colour the file names in CSS - `tomato`, `#FF6347` - becomes the nearest of the twenty accent colours.
 

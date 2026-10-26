@@ -19,6 +19,7 @@ import (
 	"github.com/roman-16/proton-cli/internal/ical"
 	"github.com/roman-16/proton-cli/internal/proton"
 	"github.com/roman-16/proton-cli/internal/ref"
+	"github.com/roman-16/proton-cli/internal/service/meet"
 	"github.com/roman-16/proton-cli/internal/skip"
 	"github.com/roman-16/proton-cli/internal/units"
 )
@@ -68,7 +69,12 @@ type Event struct {
 	Organizer string `json:"organizer,omitempty"`
 	// Color is the event's own accent colour, as the hex Proton stores. Empty
 	// means it has none of its own and is drawn in its calendar's.
-	Color     string                 `json:"color,omitempty"`
+	Color string `json:"color,omitempty"`
+	// MeetURL is the event's Proton Meet link, password included. Only EventGet
+	// fills it: the link is the meeting's secret, so no listing carries it, and
+	// the join block it was copied into is taken out of Description for the same
+	// reason.
+	MeetURL   string                 `json:"meet_url,omitempty"`
 	Signature pgphelper.VerifyResult `json:"signature,omitempty"`
 }
 
@@ -559,12 +565,30 @@ func (e stored) row() Event {
 	}
 	ev.Title = e.model.Summary
 	ev.Location = e.model.Location
-	ev.Description = e.model.Description
+	// The join block is the link again, in the description, and no listing
+	// carries a link. EventGet puts back what it may show (gotten).
+	ev.Description = stripJoinLine(e.model.Description)
 	ev.RRule = e.model.RRule
 	ev.Organizer = e.model.Organizer
 	ev.Status = StatusText(e.model.Status)
 	for _, a := range e.model.Attendees {
 		ev.Attendees = append(ev.Attendees, AttendeeText(a.Email, a.Role))
+	}
+	return ev
+}
+
+// gotten finishes a row of this event for EventGet, the one place a link is
+// shown. An event with the conference properties shows its link once, as
+// MeetURL, beside the description without the join block. An event with the
+// block alone, the state an older edit left behind, shows its description as it
+// is stored, block included.
+func (e stored) gotten(ev Event) Event {
+	switch {
+	case e.readErr != nil:
+	case hasMeetLink(e.model):
+		ev.MeetURL = e.model.ConferenceURL
+	default:
+		ev.Description = e.model.Description
 	}
 	return ev
 }
@@ -606,7 +630,7 @@ func (s *Service) EventGet(ctx context.Context, calendarID, eventID, occurrence 
 	}
 	e := s.decrypt(ctx, ck, raw)
 	if occurrence == "" {
-		ev := e.row()
+		ev := e.gotten(e.row())
 		if e.readErr == nil && e.model.Recurring() {
 			ev.Count, _ = e.model.CountOccurrences()
 		}
@@ -619,7 +643,7 @@ func (s *Service) EventGet(ctx context.Context, calendarID, eventID, occurrence 
 	if err != nil {
 		return nil, err
 	}
-	ev := occ.row()
+	ev := occ.source().gotten(occ.row())
 	return &ev, nil
 }
 
@@ -722,6 +746,8 @@ type EventInput struct {
 	// Color is the event's own accent colour, as the hex Proton stores. Empty
 	// gives it none, which is how an event comes to be drawn in its calendar's.
 	Color string
+	// Meet gives the event a Proton Meet link, made for it before it is stored.
+	Meet bool
 }
 
 // EventResult is the outcome of a write. Mail is non-nil when participants have
@@ -731,6 +757,11 @@ type EventResult struct {
 	ID   string
 	Ref  string
 	Mail *Mail
+	// MeetURL is the Proton Meet link the event was given, password included.
+	MeetURL string
+	// MeetingKept names the meeting behind the link a whole event lost when it
+	// could not be deleted. Nil means it is gone, or there was none to delete.
+	MeetingKept *MeetingKept
 }
 
 // Mail is a ready-to-send iCalendar message.
@@ -771,15 +802,21 @@ func (s *Service) EventCreate(ctx context.Context, calendarID string, in EventIn
 	if err != nil {
 		return nil, err
 	}
-	op, _, err := ck.createOp(body)
-	if err != nil {
-		return nil, err
-	}
-	created, err := s.sync(ctx, calendarID, ck.memberID, []syncOp{op})
-	if err != nil {
-		return nil, err
-	}
 	res := &EventResult{}
+	var m *meet.Meeting
+	if in.Meet {
+		if m, err = s.meetingFor(ctx, ck, &body); err != nil {
+			return nil, err
+		}
+		res.MeetURL = m.URL
+	}
+	created, err := s.storeNew(ctx, calendarID, ck, body)
+	if err != nil {
+		if m != nil {
+			return nil, s.giveBack(ctx, m, err)
+		}
+		return nil, err
+	}
 	if len(created) > 0 {
 		res.ID = created[0]
 	}
@@ -787,6 +824,15 @@ func (s *Service) EventCreate(ctx context.Context, calendarID string, in EventIn
 		res.Mail = inviteMail(body.model, external)
 	}
 	return res, nil
+}
+
+// storeNew writes a brand-new event and returns what the batch created.
+func (s *Service) storeNew(ctx context.Context, calendarID string, ck *calKeys, body eventBody) ([]string, error) {
+	op, _, err := ck.createOp(body)
+	if err != nil {
+		return nil, err
+	}
+	return s.sync(ctx, calendarID, ck.memberID, []syncOp{op})
 }
 
 // attachAttendees resolves the participants onto an event: their tokens, the

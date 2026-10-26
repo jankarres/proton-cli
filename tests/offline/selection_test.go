@@ -142,6 +142,8 @@ func TestFlagsThatContradictAreRefusedInOneSentence(t *testing.T) {
 			"--signature", "Best, Jane", "--clear-signature"}, "--signature and --clear-signature"},
 		{[]string{"calendar", "events", "update", "some-event", "--remind", "15m", "--no-remind"},
 			"--remind and --no-remind"},
+		{[]string{"calendar", "events", "update", "--meet", "--no-meet", "some-event"},
+			"--meet and --no-meet"},
 		{[]string{"calendar", "settings", "calendars", "update", "Work", "--remind", "15m", "--no-remind"},
 			"--remind and --no-remind"},
 		{[]string{"calendar", "settings", "calendars", "update", "Work", "--remind-all-day", "1d", "--no-remind"},

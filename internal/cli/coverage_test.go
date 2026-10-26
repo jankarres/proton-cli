@@ -308,6 +308,11 @@ var untested = map[string]string{
 	"PUT /pass/v1/user/alias/custom_domain/{n}/settings/mailboxes":     "the same: only a verified domain has mailboxes to point stray mail at",
 	"PUT /pass/v1/user/alias/custom_domain/{n}/settings/name":          "the same: only a verified domain has a display name to set",
 	"PUT /pass/v1/user/alias/custom_domain/{n}/settings/random_prefix": "the same: only a verified domain has a random prefix to switch",
+
+	// Proton Meet. Each of these was answered by hand on the free test account,
+	// and the suite starts only with all three accounts, so none has been
+	// recorded by a run yet.
+	"PUT /meet/v1/meetings/{id}/name": "recorded by hand against the free account, waiting for a run with all three test accounts",
 }
 
 func TestEveryRequestTheCLICanSendIsOneTheSuiteSends(t *testing.T) {

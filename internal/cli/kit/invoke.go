@@ -335,6 +335,15 @@ func (c *Invocation) remember(entries []idcache.Entry) {
 // command reports, so a command cannot describe a deletion and then perform it
 // unannounced.
 func Mutate(c *Invocation, spec ui.ResultSpec, apply func() error) error {
+	return MutateAs(c, spec, func() (string, error) { return "", apply() })
+}
+
+// MutateAs is Mutate for a change that can turn out smaller than the one asked
+// for: apply returns the trailing clause of what happened, so the confirmation
+// says that while the preview and the question said what was asked. An empty
+// clause keeps the one asked for. Nothing else of the account can change after
+// the question was answered.
+func MutateAs(c *Invocation, spec ui.ResultSpec, apply func() (detail string, err error)) error {
 	if c.App.DryRun {
 		if err := c.preview(&spec); err != nil {
 			return err
@@ -351,8 +360,12 @@ func Mutate(c *Invocation, spec ui.ResultSpec, apply func() error) error {
 	if spec.Count == 0 {
 		return c.result(spec)
 	}
-	if err := apply(); err != nil {
+	detail, err := apply()
+	if err != nil {
 		return err
+	}
+	if detail != "" {
+		spec.Detail = detail
 	}
 	return c.result(spec)
 }
